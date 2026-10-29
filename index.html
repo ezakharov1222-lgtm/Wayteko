@@ -310,7 +310,7 @@ async function syncNow(pwTry, manual){
       else if(!m.lastSync) toast(`Загружено клиентов: ${clients.length}`);
     } else if(manual) toast("Данные уже свежие");
     render();
-  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); }
+  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); if(!isGuest() && getPw()){ syncShared(); startShare(); } }
 }
 
 // ---------- отправка из приложения в репозиторий (приложение — главный источник)
@@ -334,17 +334,75 @@ async function uploadNow(manual){
   if(upBusy){ scheduleUpload(); return false; }
   upBusy = true; const rev = getMeta().rev || 0;
   try {
-    const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: getMeta().deleted || []});
-    const box = await sealBox(new TextEncoder().encode(body), pw);
-    await putFile(tok, UPATH, box, "Данные из приложения [skip ci]");
+    let stampUp = "";
+    for(let attempt = 0; attempt < 3; attempt++){
+      try { const sh = await fetchShared(); if(sh && sh.updated !== getMeta().sharedSeen){ const res = mergeShared(sh); if(res.changed){ saveLocalOnly(); render(); } } }
+      catch(e){ if(e && e.message === "token") throw e; }
+      stampUp = new Date().toISOString();
+      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guest: getGuest(), gh: tok});
+      const box = await sealBox(new TextEncoder().encode(body), pw);
+      try { await putFile(tok, UPATH, box, "Данные из приложения [skip ci]"); break; }
+      catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
+    }
     if(getGuest().pw) await putGuestCopy(tok).catch(() => {});
-    setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: ""});
+    setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: "", sharedSeen: stampUp});
     if(manual) toast("Отправлено");
     return true;
   } catch(e){
     setMeta({upErr: e.message==="token" ? "Токен не подходит или истёк — подключите заново" : "Нет связи — отправлю при следующем открытии"});
     if(manual) toast(getMeta().upErr); return false;
   } finally { upBusy = false; if(openId==="data") renderPanel(); if(isDirty() && getMeta().upRev===rev && !getMeta().upErr) scheduleUpload(); }
+}
+// ---------- синхронизация между устройствами владельца (общая зашифрованная копия data/app.enc.json)
+let shareBusy = false, shareTimer = null;
+async function fetchShared(){
+  const tok = getGh(), h = tok ? {...ghHeaders(tok), Accept: "application/vnd.github.raw"} : {Accept: "application/vnd.github.raw"};
+  const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${UPATH}?ref=main&t=${Date.now()}`, {headers: h, cache: "no-store"});
+  if(r.status === 404) return null;
+  if(r.status === 401) throw new Error("token");
+  if(!r.ok) throw new Error("http");
+  return JSON.parse(new TextDecoder().decode(await openBox(await r.json(), getPw())));
+}
+function mergeShared(sh){
+  const myDel = getMeta().deleted || [], del = new Set([...myDel, ...(sh.deleted || [])]);
+  const remote = new Map((sh.clients || []).filter(c => c && c.id).map(c => [c.id, c]));
+  let changed = 0, localAhead = myDel.some(id => !(sh.deleted || []).includes(id));
+  const out = [];
+  for(const c of clients){
+    if(del.has(c.id)){ changed++; continue; }
+    const r = remote.get(c.id);
+    if(r && (r.updated || "") > (c.updated || "")){ out.push(r); changed++; }
+    else { out.push(c); if(!r || (c.updated || "") > (r.updated || "")) localAhead = true; }
+  }
+  const have = new Set(out.map(c => c.id));
+  for(const [id, r] of remote) if(!have.has(id) && !del.has(id)){ out.push(r); changed++; }
+  clients = out;
+  if(del.size > myDel.length) setMeta({deleted: [...del]});
+  const lg = getGuest(), rg = sh.guest || {};
+  if((rg.created || "") > (lg.created || "")){ setGuest(rg); guestSeen = null; changed++; }
+  else if((lg.created || "") > (rg.created || "")) localAhead = true;
+  if(!getGh() && sh.gh){ setGh(sh.gh); setMeta({upErr: "", ghFromDevice: true}); }
+  return {changed, localAhead};
+}
+async function syncShared(manual){
+  if(isGuest() || !getPw() || shareBusy || upBusy) return;
+  shareBusy = true;
+  try {
+    const sh = await fetchShared();
+    if(!sh){ if(manual) toast("Других устройств пока нет"); return; }
+    if(sh.updated === getMeta().sharedSeen){ if(manual) toast("Все устройства синхронизированы"); return; }
+    const res = mergeShared(sh);
+    setMeta({sharedSeen: sh.updated, sharedAt: new Date().toISOString()});
+    if(res.changed){ saveLocalOnly(); toast("Обновлено с другого вашего устройства"); }
+    else if(manual) toast("Все устройства синхронизированы");
+    if(res.localAhead){ setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); }
+    render(); renderGuestPill(); if(getGuest().pw) checkGuest();
+  } catch(e){ if(manual) toast(e && e.message === "token" ? "Токен не подходит" : "Нет связи с другими устройствами"); }
+  finally { shareBusy = false; }
+}
+function startShare(){
+  if(shareTimer || isGuest()) return;
+  shareTimer = setInterval(() => { if(!document.hidden && !isGuest() && getPw()) syncShared(); }, getGh() ? 60000 : 180000);
 }
 // ---------- гостевой доступ (только просмотр) и «в сети»
 const ROLEKEY = "wayteko.role.v1", GUESTKEY = "wayteko.guest.v1", GPATH = "data/app.guest.enc.json", NTFY = "https://ntfy.sh/";
@@ -366,6 +424,7 @@ async function putFile(tok, path, box, message){
   const sha = g.ok ? (await g.json()).sha : undefined;
   const r = await fetch(api, {method:"PUT", headers:{...ghHeaders(tok), "Content-Type":"application/json"},
     body: JSON.stringify({message, content: btoa(JSON.stringify(box)), branch:"main", ...(sha ? {sha} : {})})});
+  if(r.status===409 || r.status===422) throw new Error("conflict");
   if(r.status===401 || r.status===403 || r.status===404) throw new Error("token");
   if(!r.ok) throw new Error("http");
 }
@@ -484,10 +543,12 @@ async function guestAction(kind){
     if(kind === "create" || kind === "new"){
       const name = kind === "create" ? (overlay.querySelector("#gname")?.value || "").trim() : (getGuest().name || "");
       const prev = getGuest(); setGuest({pw: genGuestPw(), name, created: new Date().toISOString()});
-      try { await putGuestCopy(tok); } catch(e){ setGuest(prev.pw ? prev : null); throw e; }
+      try { await putGuestCopy(tok); } catch(e){ setGuest(Object.keys(prev).length ? prev : null); throw e; }
+      setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload();
       guestSeen = null; toast(kind === "create" ? "Гостевой доступ создан — отправьте пароль гостю" : "Пароль сменён — старый больше не работает");
     } else if(kind === "off"){
-      await deleteFile(tok, GPATH, "Гостевой доступ отключён [skip ci]"); setGuest(null); guestSeen = null; toast("Гостевой доступ отключён");
+      await deleteFile(tok, GPATH, "Гостевой доступ отключён [skip ci]"); setGuest({off: true, created: new Date().toISOString()}); guestSeen = null;
+      setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); toast("Гостевой доступ отключён");
     }
   } catch(e){ toast(e && e.message === "token" ? "Токен не подходит — подключите отправку заново" : "Нет связи, попробуйте ещё раз"); }
   renderGuestPill(); renderPanel(); if(getGuest().pw) checkGuest();
@@ -496,14 +557,16 @@ async function guestAction(kind){
 function uploadBox(){
   const m = getMeta(), on = !!getGh();
   return `<div class="box"><h4>Отправка в интернет-версию</h4>
-    <div class="note">Приложение — главный источник. После каждого изменения оно отправляет зашифрованную копию базы в ваш репозиторий GitHub, а каждый вечер Claude переносит её в интернет-версию WAYTEKO и присылает файл.</div>
+    <div class="note">Приложение — главный источник. Все ваши устройства с основным паролем обмениваются изменениями раз в минуту и при каждом открытии; каждый вечер Claude переносит общую базу в интернет-версию WAYTEKO и присылает файл.</div>
     ${on ? `<div>Последняя отправка: <b>${m.lastUpload ? esc(fmtStamp(m.lastUpload)) : "ещё не было"}</b>${isDirty() ? " · есть неотправленные изменения" : ""}</div>
+      <div>Сверка с другими устройствами: <b>${m.sharedAt ? esc(fmtStamp(m.sharedAt)) : "ещё не было"}</b></div>
       ${m.upErr ? `<div style="color:var(--red)">${esc(m.upErr)}</div>` : ""}
       <div class="actions"><button class="btn primary small" data-act="upload" type="button">⬆️ Отправить сейчас</button>
+        <button class="btn small" data-act="devsync" type="button">🔄 Сверить устройства</button>
         <button class="btn ghost small" data-act="ghoff" type="button">Отключить</button></div>`
     : `<form id="ghForm" style="display:grid;gap:8px"><label class="f">Токен GitHub<input id="ghtok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…" required></label>
       <button class="btn primary" type="submit">Подключить отправку</button></form>
-      <div class="note">Токен вводится один раз и хранится только на этом устройстве.</div>`}</div>`;
+      <div class="note">Токен вводится один раз. Если он уже подключён на другом вашем устройстве, это устройство получит его само через минуту после входа.</div>`}</div>`;
 }
 async function downloadXlsx(){
   const pw = getPw(); if(!pw){ toast("Сначала введите пароль"); return; }
@@ -867,6 +930,7 @@ document.addEventListener("click", async e => {
   if(t.dataset.act==="csv"){ exportCsv(); return; }
   if(t.dataset.act==="xlsx"){ downloadXlsx(); return; }
   if(t.dataset.act==="upload"){ await uploadNow(true); return; }
+  if(t.dataset.act==="devsync"){ await syncShared(true); return; }
   if(t.dataset.act==="ghoff"){ setGh(""); setMeta({upErr:""}); renderPanel(); return; }
   if(t.dataset.act==="sync"){ await syncNow(null, true); return; }
   if(t.dataset.act==="logout"){ if(isGuest()){ beat("off"); setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null}); }
@@ -953,7 +1017,7 @@ try { navigator.storage && navigator.storage.persist && navigator.storage.persis
 if("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 document.addEventListener("visibilitychange", () => {
   if(document.hidden){ if(isGuest()) beat("off"); return; }
-  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else checkGuest(); });
+  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else { checkGuest(); syncShared(); } });
 applyRole();
 if(stored!==null) syncNow();
 if(isGuest()) startPresence(); else checkGuest();
