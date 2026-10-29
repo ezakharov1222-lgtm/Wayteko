@@ -339,12 +339,12 @@ async function uploadNow(manual){
       try { const sh = await fetchShared(); if(sh && sh.updated !== getMeta().sharedSeen){ const res = mergeShared(sh); if(res.changed){ saveLocalOnly(); render(); } } }
       catch(e){ if(e && e.message === "token") throw e; }
       stampUp = new Date().toISOString();
-      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guest: getGuest(), gh: tok});
+      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guests: getGuests(), gh: tok});
       const box = await sealBox(new TextEncoder().encode(body), pw);
       try { await putFile(tok, UPATH, box, "Данные из приложения [skip ci]"); break; }
       catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
     }
-    if(getGuest().pw) await putGuestCopy(tok).catch(() => {});
+    if(activeGuests().length) await putGuestCopies(tok).catch(() => {});
     setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: "", sharedSeen: stampUp});
     if(manual) toast("Отправлено");
     return true;
@@ -378,9 +378,16 @@ function mergeShared(sh){
   for(const [id, r] of remote) if(!have.has(id) && !del.has(id)){ out.push(r); changed++; }
   clients = out;
   if(del.size > myDel.length) setMeta({deleted: [...del]});
-  const lg = getGuest(), rg = sh.guest || {};
-  if((rg.created || "") > (lg.created || "")){ setGuest(rg); guestSeen = null; changed++; }
-  else if((lg.created || "") > (rg.created || "")) localAhead = true;
+  let rgl = Array.isArray(sh.guests) ? sh.guests : null;
+  if(!rgl && sh.guest && sh.guest.pw) rgl = [{id: "g1", name: sh.guest.name || "", pw: sh.guest.pw, updated: sh.guest.created || "", legacy: true}];
+  if(!rgl && sh.guest && sh.guest.off) rgl = [{id: "g1", off: true, updated: sh.guest.created || ""}];
+  rgl = rgl || [];
+  const lgm = new Map(getGuests().map(g => [g.id, g])); let gch = false;
+  for(const r of rgl){ const l = lgm.get(r.id);
+    if(!l || (r.updated || "") > (l.updated || "")){ lgm.set(r.id, r); gch = true; }
+    else if((l.updated || "") > (r.updated || "")) localAhead = true; }
+  for(const id of lgm.keys()) if(!rgl.some(r => r.id === id)) localAhead = true;
+  if(gch){ setGuests([...lgm.values()]); guestSeen = {}; changed++; }
   if(!getGh() && sh.gh){ setGh(sh.gh); setMeta({upErr: "", ghFromDevice: true}); }
   return {changed, localAhead};
 }
@@ -396,7 +403,7 @@ async function syncShared(manual){
     if(res.changed){ saveLocalOnly(); toast("Обновлено с другого вашего устройства"); }
     else if(manual) toast("Все устройства синхронизированы");
     if(res.localAhead){ setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); }
-    render(); renderGuestPill(); if(getGuest().pw) checkGuest();
+    render(); renderGuestPill(); if(activeGuests().length) checkGuest();
   } catch(e){ if(manual) toast(e && e.message === "token" ? "Токен не подходит" : "Нет связи с другими устройствами"); }
   finally { shareBusy = false; }
 }
@@ -404,8 +411,8 @@ function startShare(){
   if(shareTimer || isGuest()) return;
   shareTimer = setInterval(() => { if(!document.hidden && !isGuest() && getPw()) syncShared(); }, getGh() ? 60000 : 180000);
 }
-// ---------- гостевой доступ (только просмотр) и «в сети»
-const ROLEKEY = "wayteko.role.v1", GUESTKEY = "wayteko.guest.v1", GPATH = "data/app.guest.enc.json", NTFY = "https://ntfy.sh/";
+// ---------- гостевой доступ (только просмотр, до 4 гостей) и «в сети»
+const ROLEKEY = "wayteko.role.v1", GUESTKEY = "wayteko.guests.v2", OLDGUESTKEY = "wayteko.guest.v1", GPATH = "data/app.guest.enc.json", NTFY = "https://ntfy.sh/", MAXG = 4;
 const GUEST_MSG = "Гостевой доступ: только просмотр";
 const APP_URL = "https://ezakharov1222-lgtm.github.io/Wayteko/";
 const TABNAME = {today:"Сегодня", board:"Воронка", all:"Все клиенты", arch:"Филиал и отказы", data:"Данные"};
@@ -413,10 +420,19 @@ function getRole(){ try { return localStorage.getItem(ROLEKEY) || ""; } catch(e)
 function setRole(r){ try { r ? localStorage.setItem(ROLEKEY, r) : localStorage.removeItem(ROLEKEY); } catch(e){} applyRole(); }
 function isGuest(){ return getRole() === "guest"; }
 function applyRole(){ document.documentElement.classList.toggle("guest", isGuest()); }
-function getGuest(){ try { return JSON.parse(localStorage.getItem(GUESTKEY) || "{}"); } catch(e){ return {}; } }
-function setGuest(g){ try { g ? localStorage.setItem(GUESTKEY, JSON.stringify(g)) : localStorage.removeItem(GUESTKEY); } catch(e){} }
+function setGuests(l){ try { localStorage.setItem(GUESTKEY, JSON.stringify(l)); } catch(e){} }
+function getGuests(){
+  try { const v = JSON.parse(localStorage.getItem(GUESTKEY) || "null"); if(Array.isArray(v)) return v; } catch(e){}
+  let old = {}; try { old = JSON.parse(localStorage.getItem(OLDGUESTKEY) || "{}"); } catch(e){}
+  const list = old.pw ? [{id: "g1", name: old.name || "", pw: old.pw, updated: old.created || new Date().toISOString(), legacy: true}] : [];
+  setGuests(list); return list;
+}
+const activeGuests = () => getGuests().filter(g => g.pw && !g.off);
 function saveLocalOnly(){ try { localStorage.setItem(KEY, JSON.stringify(clients)); } catch(e){} }
 function genGuestPw(){ const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = crypto.getRandomValues(new Uint8Array(12)); let o = "G"; for(let i = 0; i < 12; i++){ if(i % 4 === 0) o += "-"; o += a.at(r.at(i) % a.length); } return o; }
+async function hex16(s){ const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))); return Array.from(h.slice(0, 8), b => b.toString(16).padStart(2, "0")).join(""); }
+const pathForPw = async pw => `data/g-${await hex16("wayteko-guest:" + pw)}.enc.json`;
+const guestPath = async g => g.legacy ? GPATH : pathForPw(g.pw);
 async function putFile(tok, path, box, message){
   const api = `https://api.github.com/repos/${REPO}/contents/${path}`;
   const g = await fetch(api + "?ref=main", {headers: ghHeaders(tok), cache: "no-store"});
@@ -437,24 +453,25 @@ async function deleteFile(tok, path, message){
   const r = await fetch(api, {method:"DELETE", headers:{...ghHeaders(tok), "Content-Type":"application/json"}, body: JSON.stringify({message, sha:(await g.json()).sha, branch:"main"})});
   if(!r.ok) throw new Error("http");
 }
-async function putGuestCopy(tok){
-  const g = getGuest(); if(!g.pw) return;
+async function putOneGuest(tok, g){
   const body = JSON.stringify({updated: new Date().toISOString(), clients, guestName: g.name || ""});
-  await putFile(tok, GPATH, await sealBox(new TextEncoder().encode(body), g.pw), "Гостевая копия [skip ci]");
+  await putFile(tok, await guestPath(g), await sealBox(new TextEncoder().encode(body), g.pw), "Гостевая копия [skip ci]");
 }
-async function fetchGuestBox(){
-  const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${GPATH}?ref=main&t=${Date.now()}`, {headers:{Accept:"application/vnd.github.raw"}, cache:"no-store"});
+async function putGuestCopies(tok){ for(const g of activeGuests()){ try { await putOneGuest(tok, g); } catch(e){ if(e && e.message === "conflict") { try { await putOneGuest(tok, g); } catch(_){} } } } }
+async function fetchBoxAt(path){
+  const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=main&t=${Date.now()}`, {headers:{Accept:"application/vnd.github.raw"}, cache:"no-store"});
   if(r.status === 404) return null;
   if(!r.ok) throw new Error("http");
   return await r.json();
 }
+async function fetchGuestBox(pw){ return (await fetchBoxAt(await pathForPw(pw))) || (await fetchBoxAt(GPATH)); }
 function guestRevoked(){
   beat("off"); setPw(""); setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null});
   syncState.needPw = true; closePanel(); toast("Гостевой доступ изменён или отключён владельцем"); render();
 }
 async function guestSync(pw, manual, login){
   let box;
-  try { box = await fetchGuestBox(); }
+  try { box = await fetchGuestBox(pw); }
   catch(e){ if(login) return false; syncState.status = "offline"; if(manual) toast("Нет связи — показываю сохранённые данные"); render(); return true; }
   if(!box){ if(!login) guestRevoked(); return false; }
   let snap;
@@ -482,54 +499,62 @@ function startPresence(){
   beat("on");
   presTimer = setInterval(() => { if(!document.hidden && isGuest()){ beat("on"); syncNow(); } }, 120000);
 }
-let guestSeen = null;
-async function checkGuest(){
-  const g = getGuest(); if(!g.pw || isGuest()){ guestSeen = null; renderGuestPill(); return; }
+let guestSeen = {};
+async function seenFor(g){
   try {
-    const t = await presenceTopic(g.pw);
-    const r = await fetch(`${NTFY}${t}/json?poll=1&since=12h`, {cache:"no-store"}); if(!r.ok) throw 0;
+    const r = await fetch(`${NTFY}${await presenceTopic(g.pw)}/json?poll=1&since=12h`, {cache:"no-store"}); if(!r.ok) throw 0;
     const ev = (await r.text()).split("\n").map(l => { try { return JSON.parse(l); } catch(e){ return null; } }).filter(x => x && x.event === "message");
     const last = ev.at(-1);
-    if(!last) guestSeen = {online:false, at:null};
-    else { let p = {}; try { p = JSON.parse(last.message); } catch(e){}
-      guestSeen = {online: p.s === "on" && Date.now()/1000 - last.time < 170, at: last.time * 1000, tab: p.tab}; }
-  } catch(e){ guestSeen = guestSeen && !guestSeen.err ? guestSeen : {online:false, at:null, err:true}; }
+    if(!last) return {online:false, at:null};
+    let p = {}; try { p = JSON.parse(last.message); } catch(e){}
+    return {online: p.s === "on" && Date.now()/1000 - last.time < 170, at: last.time * 1000, tab: p.tab};
+  } catch(e){ const prev = guestSeen[g.id]; return prev && !prev.err ? prev : {online:false, at:null, err:true}; }
+}
+async function checkGuest(){
+  const list = activeGuests(); if(!list.length || isGuest()){ guestSeen = {}; renderGuestPill(); return; }
+  const res = await Promise.all(list.map(seenFor)); const next = {};
+  list.forEach((g, i) => { next[g.id] = res.at(i); }); guestSeen = next;
   renderGuestPill();
   const a = document.activeElement;
   if(openId==="data" && !(a && overlay.contains(a) && /INPUT|TEXTAREA/.test(a.tagName))) renderPanel();
 }
 function renderGuestPill(){
   const el = document.getElementById("guestPill"); if(!el) return;
-  if(isGuest()){ el.hidden = false; el.className = "gpill view"; el.textContent = "👁 Гость · только просмотр"; }
-  else if(guestSeen && guestSeen.online){ el.hidden = false; el.className = "gpill"; el.textContent = "🟢 " + (getGuest().name || "Гость") + " в сети"; }
+  if(isGuest()){ el.hidden = false; el.className = "gpill view"; el.textContent = "👁 Гость · только просмотр"; return; }
+  const on = activeGuests().filter(g => guestSeen[g.id] && guestSeen[g.id].online).map(g => g.name || "Гость");
+  if(on.length){ el.hidden = false; el.className = "gpill"; el.textContent = "🟢 " + on.join(", ") + " в сети"; }
   else el.hidden = true;
 }
-function guestMessage(pw){
-  return `WAYTEKO — гостевой доступ (только просмотр)\nСсылка: ${APP_URL}\nПароль: ${pw}\n\nОткройте ссылку в Safari и введите пароль. Чтобы поставить на экран: «Поделиться» → «На экран «Домой»», затем откройте значок и введите пароль ещё раз.`;
+function guestMessage(g){
+  return `WAYTEKO — гостевой доступ (только просмотр)${g.name ? " для " + g.name : ""}\nСсылка: ${APP_URL}\nПароль: ${g.pw}\n\nОткройте ссылку в Safari и введите пароль. Чтобы поставить на экран: «Поделиться» → «На экран «Домой»», затем откройте значок и введите пароль ещё раз.`;
+}
+function guestStatus(gs){
+  return !gs ? "проверяю…" : gs.online ? `🟢 в сети${gs.tab && TABNAME[gs.tab] ? " · смотрит «" + TABNAME[gs.tab] + "»" : ""}`
+    : gs.at ? `был в сети ${esc(fmtStamp(new Date(gs.at).toISOString()))}` : gs.err ? "статус недоступен" : "ещё не заходил";
 }
 function guestBox(){
-  const g = getGuest(), gs = guestSeen;
-  if(!g.pw) return `<div class="box"><h4>Гостевой доступ</h4>
-    <div class="note">Гость сможет только смотреть клиентов, касания и встречи — без права изменений. Пароль вы отправляете ему сами.</div>
-    ${getGh() ? `<form id="guestForm" style="display:grid;gap:8px"><label class="f">Имя гостя (видно только вам)<input id="gname" type="text" placeholder="Например: Иван, директор"></label>
-      <button class="btn primary" type="submit">Создать гостевой доступ</button></form>`
-    : `<div class="note">Сначала подключите отправку в интернет-версию (блок выше) — через неё гость получает данные.</div>`}</div>`;
-  const status = !gs ? "проверяю…" : gs.online ? `🟢 в сети сейчас${gs.tab && TABNAME[gs.tab] ? " · смотрит «" + TABNAME[gs.tab] + "»" : ""}`
-    : gs.at ? `был в сети ${esc(fmtStamp(new Date(gs.at).toISOString()))}` : gs.err ? "статус сейчас недоступен" : "ещё не заходил (за последние 12 часов)";
-  return `<div class="box"><h4>Гостевой доступ${g.name ? " · " + esc(g.name) : ""}</h4>
-    <div>Статус: <b>${status}</b></div>
-    <div>Пароль гостя: <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.03em">${esc(g.pw)}</b></div>
-    <div class="actions"><button class="btn primary small" data-act="g-share" type="button">📤 Отправить гостю</button>
-      <button class="btn small" data-act="g-copy" type="button">Скопировать</button></div>
-    <div class="actions"><button class="btn ghost small" data-act="g-new" type="button">Сменить пароль</button>
-      <button class="btn ghost small" data-act="g-off" type="button" style="color:var(--red)">Отключить доступ</button></div>
-    <div class="note">Гость видит ваши изменения через 2–3 минуты. Статус «в сети» обновляется раз в пару минут; после смены пароля или отключения гость теряет доступ при следующем обновлении.</div></div>`;
+  const list = activeGuests();
+  const rows = list.map(g => `<div class="mrow">
+      <div><b>${esc(g.name || "Гость")}</b> · ${guestStatus(guestSeen[g.id])}</div>
+      <div>Пароль: <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.03em">${esc(g.pw)}</b></div>
+      <div class="actions"><button class="btn primary small" data-act="g-share" data-gid="${esc(g.id)}" type="button">📤 Отправить</button>
+        <button class="btn small" data-act="g-copy" data-gid="${esc(g.id)}" type="button">Скопировать</button>
+        <button class="btn ghost small" data-act="g-new" data-gid="${esc(g.id)}" type="button">Сменить пароль</button>
+        <button class="btn ghost small" data-act="g-off" data-gid="${esc(g.id)}" type="button" style="color:var(--red)">Удалить</button></div></div>`).join("");
+  const add = list.length >= MAXG ? `<div class="note">Добавлено максимум — ${MAXG} гостя. Чтобы добавить нового, удалите одного из списка.</div>`
+    : getGh() ? `<form id="guestForm" style="display:grid;gap:8px;margin-top:4px"><label class="f">Имя нового гостя (видно только вам)<input id="gname" type="text" placeholder="Например: Иван, директор" required maxlength="40"></label>
+      <button class="btn primary" type="submit">Добавить гостя</button></form>`
+    : `<div class="note">Сначала подключите отправку в интернет-версию (блок выше) — через неё гости получают данные.</div>`;
+  return `<div class="box"><h4>Гостевой доступ · ${list.length} из ${MAXG}</h4>
+    <div class="note">Гость может только смотреть клиентов, касания и встречи — без права изменений. У каждого гостя своё имя и свой пароль; пароль вы отправляете сами.</div>
+    ${rows}${add}
+    ${list.length ? `<div class="note">Гости видят ваши изменения через 2–3 минуты. «В сети» обновляется раз в пару минут. После смены пароля или удаления гость теряет доступ при следующем обновлении.</div>` : ""}</div>`;
 }
 function guestDataPanel(){
   const m = getMeta();
   return `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="Данные">
     <div class="head"><h2>Данные</h2><button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
-    <div class="box"><h4>Гостевой доступ</h4>
+    <div class="box"><h4>Гостевой доступ${m.guestName ? " · " + esc(m.guestName) : ""}</h4>
       <div>Вы вошли как гость: можно только смотреть, изменения недоступны.</div>
       <div>Клиентов: <b>${clients.length}</b>. Данные от: <b>${m.lastSync ? esc(fmtStamp(m.lastSync)) : "—"}</b>${syncState.status==="offline" ? " · сейчас нет связи" : ""}.</div>
       <div class="note">Данные обновляются автоматически, пока приложение открыто.</div>
@@ -537,21 +562,36 @@ function guestDataPanel(){
         <button class="btn ghost small" data-act="logout" type="button">Выйти</button></div></div>
   </aside>`;
 }
-async function guestAction(kind){
+async function guestAction(kind, gid){
   const tok = getGh(); if(!tok){ toast("Сначала подключите отправку"); return; }
+  const before = getGuests(), list = before.map(g => ({...g})), now = new Date().toISOString();
   try {
-    if(kind === "create" || kind === "new"){
-      const name = kind === "create" ? (overlay.querySelector("#gname")?.value || "").trim() : (getGuest().name || "");
-      const prev = getGuest(); setGuest({pw: genGuestPw(), name, created: new Date().toISOString()});
-      try { await putGuestCopy(tok); } catch(e){ setGuest(Object.keys(prev).length ? prev : null); throw e; }
-      setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload();
-      guestSeen = null; toast(kind === "create" ? "Гостевой доступ создан — отправьте пароль гостю" : "Пароль сменён — старый больше не работает");
-    } else if(kind === "off"){
-      await deleteFile(tok, GPATH, "Гостевой доступ отключён [skip ci]"); setGuest({off: true, created: new Date().toISOString()}); guestSeen = null;
-      setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); toast("Гостевой доступ отключён");
+    if(kind === "add"){
+      const name = (overlay.querySelector("#gname")?.value || "").trim();
+      if(!name){ toast("Укажите имя гостя"); return; }
+      if(activeGuests().length >= MAXG){ toast(`Не больше ${MAXG} гостей`); return; }
+      const g = {id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, pw: genGuestPw(), updated: now};
+      list.push(g); setGuests(list);
+      await putOneGuest(tok, g);
+      toast(`Гость «${name}» добавлен — отправьте ему пароль`);
+    } else {
+      const g = list.find(x => x.id === gid); if(!g || !g.pw) return;
+      const oldPath = await guestPath(g);
+      if(kind === "new"){
+        g.pw = genGuestPw(); g.legacy = false; g.updated = now; setGuests(list);
+        await putOneGuest(tok, g);
+        await deleteFile(tok, oldPath, "Гостевой пароль сменён [skip ci]").catch(() => {});
+        toast(`Пароль для «${g.name || "гостя"}» сменён — старый больше не работает`);
+      } else if(kind === "off"){
+        await deleteFile(tok, oldPath, "Гостевой доступ удалён [skip ci]");
+        g.off = true; delete g.pw; g.updated = now; setGuests(list);
+        toast(`Доступ «${g.name || "гостя"}» удалён`);
+      }
     }
-  } catch(e){ toast(e && e.message === "token" ? "Токен не подходит — подключите отправку заново" : "Нет связи, попробуйте ещё раз"); }
-  renderGuestPill(); renderPanel(); if(getGuest().pw) checkGuest();
+    delete guestSeen[gid];
+    setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload();
+  } catch(e){ setGuests(before); toast(e && e.message === "token" ? "Токен не подходит — подключите отправку заново" : "Нет связи, попробуйте ещё раз"); }
+  renderGuestPill(); renderPanel(); if(activeGuests().length) checkGuest();
 }
 
 function uploadBox(){
@@ -936,11 +976,11 @@ document.addEventListener("click", async e => {
   if(t.dataset.act==="sync"){ await syncNow(null, true); return; }
   if(t.dataset.act==="logout"){ if(isGuest()){ beat("off"); setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null}); }
     setPw(""); syncState.needPw = true; closePanel(); render(); return; }
-  if(t.dataset.act==="g-share" || t.dataset.act==="g-copy"){ const txt = guestMessage(getGuest().pw || "");
+  if(t.dataset.act==="g-share" || t.dataset.act==="g-copy"){ const g = activeGuests().find(x => x.id === t.dataset.gid); if(!g) return; const txt = guestMessage(g);
     if(t.dataset.act==="g-share" && navigator.share){ try { await navigator.share({text: txt}); } catch(_){} return; }
-    try { await navigator.clipboard.writeText(txt); toast("Скопировано — вставьте в сообщение гостю"); } catch(_){ toast(getGuest().pw); } return; }
-  if(t.dataset.act==="g-new"){ await guestAction("new"); return; }
-  if(t.dataset.act==="g-off"){ await guestAction("off"); return; }
+    try { await navigator.clipboard.writeText(txt); toast("Скопировано — вставьте в сообщение гостю"); } catch(_){ toast(g.pw); } return; }
+  if(t.dataset.act==="g-new"){ await guestAction("new", t.dataset.gid); return; }
+  if(t.dataset.act==="g-off"){ await guestAction("off", t.dataset.gid); return; }
   if(t.dataset.act==="imp-replace"){ applyImport("replace"); return; }
   if(t.dataset.act==="imp-merge"){ applyImport("merge"); return; }
   if(t.dataset.act==="imp-cancel"){ pendingImport = null; renderPanel(); return; }
@@ -985,7 +1025,7 @@ document.addEventListener("submit", async e => {
       if(!r.ok) throw 0; const j = await r.json(); if(j.permissions && !j.permissions.push) throw 0; }
     catch(_){ toast("Токен не подходит: нужен доступ к репозиторию wayteko на запись"); return; }
     setGh(tok); setMeta({upErr:"", upRev: -1}); renderPanel(); await uploadNow(true); return; }
-  if(e.target.id==="guestForm"){ await guestAction("create"); return; }
+  if(e.target.id==="guestForm"){ await guestAction("add"); return; }
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
     const v = id => overlay.querySelector(id).value.trim();
@@ -1022,7 +1062,7 @@ document.addEventListener("visibilitychange", () => {
 applyRole();
 if(stored!==null) syncNow();
 if(isGuest()) startPresence(); else checkGuest();
-setInterval(() => { if(!document.hidden && !isGuest() && getGuest().pw) checkGuest(); }, 30000);
+setInterval(() => { if(!document.hidden && !isGuest() && activeGuests().length) checkGuest(); }, 30000);
 setInterval(() => { if(loaded && !openId) render(); }, 60000);
 })();
 </script>
