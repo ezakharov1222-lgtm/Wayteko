@@ -240,7 +240,7 @@ function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = fals
 // ---------- хранение: только на этом устройстве
 const KEY = "wayteko.clients.v1", META = "wayteko.meta.v1";
 function loadLocal(){ try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : []; } catch(e){ return null; } }
-function persist(){ try { localStorage.setItem(KEY, JSON.stringify(clients)); return true; }
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(clients)); setMeta({rev: (getMeta().rev||0) + 1}); scheduleUpload(); return true; }
   catch(e){ toast("Не сохранилось: память для приложения недоступна"); return false; } }
 function getMeta(){ try { return JSON.parse(localStorage.getItem(META) || "{}"); } catch(e){ return {}; } }
 function setMeta(p){ try { localStorage.setItem(META, JSON.stringify({...getMeta(), ...p})); } catch(e){} }
@@ -257,7 +257,9 @@ async function create(data){
   if(!persist()){ clients.pop(); return null; }
   render(); return id;
 }
-function removeClient(id){ const before = clients; clients = clients.filter(c => c.id!==id); if(!persist()){ clients = before; return false; } return true; }
+function removeClient(id){ const before = clients; clients = clients.filter(c => c.id!==id);
+  const m0 = getMeta(); setMeta({deleted: [...new Set([...(m0.deleted||[]), id])]});
+  if(!persist()){ clients = before; setMeta({deleted: m0.deleted||[]}); return false; } return true; }
 
 // ---------- обновление из интернет-версии
 const PWKEY = "wayteko.pw.v1";
@@ -271,8 +273,8 @@ async function openBox(box, pw){
 function getPw(){ try { return localStorage.getItem(PWKEY) || ""; } catch(e){ return ""; } }
 function setPw(p){ try { p ? localStorage.setItem(PWKEY, p) : localStorage.removeItem(PWKEY); } catch(e){} }
 function mergeSnapshot(list){
-  const byId = new Map(clients.map(c => [c.id, c])); let added = 0, changed = 0;
-  for(const r of list){ const l = byId.get(r.id);
+  const byId = new Map(clients.map(c => [c.id, c])), del = new Set(getMeta().deleted || []); let added = 0, changed = 0;
+  for(const r of list){ if(del.has(r.id)) continue; const l = byId.get(r.id);
     if(!l){ byId.set(r.id, r); added++; }
     else if((r.updated||"") > (l.updated||"")){ byId.set(r.id, r); changed++; } }
   clients = [...byId.values()]; return {added, changed};
@@ -300,7 +302,59 @@ async function syncNow(pwTry, manual){
       else if(!m.lastSync) toast(`Загружено клиентов: ${clients.length}`);
     } else if(manual) toast("Данные уже свежие");
     render();
-  } finally { syncBusy = false; }
+  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); }
+}
+
+// ---------- отправка из приложения в репозиторий (приложение — главный источник)
+const GHKEY = "wayteko.gh.v1", REPO = "ezakharov1222-lgtm/wayteko", UPATH = "data/app.enc.json";
+function getGh(){ try { return localStorage.getItem(GHKEY) || ""; } catch(e){ return ""; } }
+function setGh(t){ try { t ? localStorage.setItem(GHKEY, t) : localStorage.removeItem(GHKEY); } catch(e){} }
+const isDirty = () => { const m = getMeta(); return (m.rev||0) !== (m.upRev||0); };
+const b64e = u8 => { let s = ""; for(let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+async function sealBox(bytes, pw){
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 250000;
+  const k0 = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+  const k = await crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations:iter, hash:"SHA-256"}, k0, {name:"AES-GCM", length:256}, false, ["encrypt"]);
+  return {v:1, iter, salt:b64e(salt), iv:b64e(iv), ct:b64e(new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, k, bytes)))};
+}
+const ghHeaders = tok => ({Authorization: "Bearer " + tok, Accept: "application/vnd.github+json"});
+let upTimer = null, upBusy = false;
+function scheduleUpload(){ if(!getGh() || !getPw()) return; clearTimeout(upTimer); upTimer = setTimeout(() => uploadNow(), 1500); }
+async function uploadNow(manual){
+  const tok = getGh(), pw = getPw();
+  if(!tok || !pw){ if(manual) toast("Сначала подключите отправку"); return false; }
+  if(upBusy){ scheduleUpload(); return false; }
+  upBusy = true; const rev = getMeta().rev || 0;
+  try {
+    const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: getMeta().deleted || []});
+    const box = await sealBox(new TextEncoder().encode(body), pw);
+    const api = `https://api.github.com/repos/${REPO}/contents/${UPATH}`;
+    const g = await fetch(api + "?ref=main", {headers: ghHeaders(tok), cache: "no-store"});
+    if(g.status===401 || g.status===403) throw new Error("token");
+    const sha = g.ok ? (await g.json()).sha : undefined;
+    const r = await fetch(api, {method:"PUT", headers:{...ghHeaders(tok), "Content-Type":"application/json"},
+      body: JSON.stringify({message:"Данные из приложения", content: btoa(JSON.stringify(box)), branch:"main", ...(sha ? {sha} : {})})});
+    if(r.status===401 || r.status===403 || r.status===404) throw new Error("token");
+    if(!r.ok) throw new Error("http");
+    setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: ""});
+    if(manual) toast("Отправлено");
+    return true;
+  } catch(e){
+    setMeta({upErr: e.message==="token" ? "Токен не подходит или истёк — подключите заново" : "Нет связи — отправлю при следующем открытии"});
+    if(manual) toast(getMeta().upErr); return false;
+  } finally { upBusy = false; if(openId==="data") renderPanel(); if(isDirty() && getMeta().upRev===rev && !getMeta().upErr) scheduleUpload(); }
+}
+function uploadBox(){
+  const m = getMeta(), on = !!getGh();
+  return `<div class="box"><h4>Отправка в интернет-версию</h4>
+    <div class="note">Приложение — главный источник. После каждого изменения оно отправляет зашифрованную копию базы в ваш репозиторий GitHub, а каждый вечер Claude переносит её в интернет-версию WAYTEKO и присылает файл.</div>
+    ${on ? `<div>Последняя отправка: <b>${m.lastUpload ? esc(fmtStamp(m.lastUpload)) : "ещё не было"}</b>${isDirty() ? " · есть неотправленные изменения" : ""}</div>
+      ${m.upErr ? `<div style="color:var(--red)">${esc(m.upErr)}</div>` : ""}
+      <div class="actions"><button class="btn primary small" data-act="upload" type="button">⬆️ Отправить сейчас</button>
+        <button class="btn ghost small" data-act="ghoff" type="button">Отключить</button></div>`
+    : `<form id="ghForm" style="display:grid;gap:8px"><label class="f">Токен GitHub<input id="ghtok" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…" required></label>
+      <button class="btn primary" type="submit">Подключить отправку</button></form>
+      <div class="note">Токен вводится один раз и хранится только на этом устройстве.</div>`}</div>`;
 }
 async function downloadXlsx(){
   const pw = getPw(); if(!pw){ toast("Сначала введите пароль"); return; }
@@ -395,10 +449,11 @@ function renderDataPanel(){
     <div class="head"><h2>Данные</h2><button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
     <div class="box"><h4>Обновление из интернет-версии</h4>
       <div>Клиентов: <b>${clients.length}</b>. База: <b>${m.lastSync ? esc(fmtStamp(m.lastSync)) : "ещё не загружалась"}</b>${syncState.status==="offline" ? " · сейчас нет связи" : ""}.</div>
-      <div class="note">Раз в сутки свежая база из интернет-версии WAYTEKO выкладывается в зашифрованном виде, и приложение подтягивает её при открытии. Изменения, сделанные здесь, сохраняются на этом устройстве, но в интернет-версию не попадают — основную работу ведите там.</div>
+      <div class="note">Раз в сутки свежая база из интернет-версии WAYTEKO выкладывается в зашифрованном виде, и приложение подтягивает её при открытии.</div>
       <div class="stack">
         <button class="btn primary" data-act="xlsx" type="button">📥 Скачать файл клиентов (Excel)</button>
         <button class="btn" data-act="sync" type="button">🔄 Обновить сейчас</button></div></div>
+    ${uploadBox()}
     <div class="box"><h4>Резервная копия</h4>
       <div class="note">Последняя резервная копия этого устройства: ${esc(last)}.</div></div>
     ${pendingImport ? `<div class="box"><h4>Загрузка файла</h4><div>В файле клиентов: <b>${pendingImport.length}</b>. Сейчас в приложении: <b>${clients.length}</b>.</div>
@@ -661,6 +716,8 @@ document.addEventListener("click", async e => {
   if(t.dataset.act==="backup"){ exportBackup(); return; }
   if(t.dataset.act==="csv"){ exportCsv(); return; }
   if(t.dataset.act==="xlsx"){ downloadXlsx(); return; }
+  if(t.dataset.act==="upload"){ await uploadNow(true); return; }
+  if(t.dataset.act==="ghoff"){ setGh(""); setMeta({upErr:""}); renderPanel(); return; }
   if(t.dataset.act==="sync"){ await syncNow(null, true); return; }
   if(t.dataset.act==="logout"){ setPw(""); syncState.needPw = true; closePanel(); render(); return; }
   if(t.dataset.act==="imp-replace"){ applyImport("replace"); return; }
@@ -701,6 +758,12 @@ document.addEventListener("change", async e => {
 document.addEventListener("keydown", e => { if(e.key==="Escape" && openId) closePanel(); });
 document.addEventListener("submit", async e => {
   e.preventDefault();
+  if(e.target.id==="ghForm"){ const tok = (overlay.querySelector("#ghtok")?.value || "").trim(); if(!tok) return;
+    if(!getPw()){ toast("Сначала войдите по паролю"); return; }
+    try { const r = await fetch(`https://api.github.com/repos/${REPO}`, {headers: ghHeaders(tok), cache:"no-store"});
+      if(!r.ok) throw 0; const j = await r.json(); if(j.permissions && !j.permissions.push) throw 0; }
+    catch(_){ toast("Токен не подходит: нужен доступ к репозиторию wayteko на запись"); return; }
+    setGh(tok); setMeta({upErr:"", upRev: -1}); renderPanel(); await uploadNow(true); return; }
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
     const v = id => overlay.querySelector(id).value.trim();
