@@ -147,6 +147,11 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .stack{display:grid;gap:8px}
 .stack .btn{text-align:left}
 .note{font-size:13px;color:var(--muted)}
+.gpill{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--green-bg);color:var(--green)}
+.gpill.view{background:var(--steel-soft);color:var(--steel)}
+.guest #addBtn,.guest #addBtn2,.guest [data-move],.guest [data-focus],.guest [data-meet-open]:not(.meet-on),.guest [data-meet-done],.guest [data-meet-del],
+.guest #touchForm,.guest #meetForm,.guest #editDet,.guest .box:has(> [data-askdel]),.guest .actions .lbl,.guest .actions [data-temp]{display:none!important}
+.guest .temps button{pointer-events:none}.guest .temps button[aria-pressed="false"]{display:none}
 @media (max-width:640px){
   .board{grid-template-columns:repeat(4,82%)}
   .kv{grid-template-columns:90px 1fr auto}
@@ -158,7 +163,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand"><h1>WAYTEKO</h1><div class="date" id="todayLbl"></div></div>
+    <div class="brand"><h1>WAYTEKO</h1><div class="date"><span id="todayLbl"></span><span id="guestPill" class="gpill" hidden></span></div></div>
     <div class="hdr-actions"><button class="btn" id="dataBtn" type="button">⋯ Данные</button><button class="btn primary" id="addBtn" type="button">+ Новый клиент</button></div>
   </header>
   <section class="stats" id="stats" aria-label="Сводка"></section>
@@ -246,18 +251,20 @@ function getMeta(){ try { return JSON.parse(localStorage.getItem(META) || "{}");
 function setMeta(p){ try { localStorage.setItem(META, JSON.stringify({...getMeta(), ...p})); } catch(e){} }
 const newId = () => "c" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 async function save(id, patch){
+  if(isGuest()){ toast(GUEST_MSG); return false; }
   const i = clients.findIndex(c => c.id===id); if(i<0) return false;
   const prev = clients[i]; clients[i] = {...prev, ...patch, updated: new Date().toISOString()};
   if(!persist()){ clients[i] = prev; return false; }
   render(); return true;
 }
 async function create(data){
+  if(isGuest()){ toast(GUEST_MSG); return null; }
   const now = new Date().toISOString(), id = newId();
   clients.push({...data, id, touches:[], created:now, updated:now});
   if(!persist()){ clients.pop(); return null; }
   render(); return id;
 }
-function removeClient(id){ const before = clients; clients = clients.filter(c => c.id!==id);
+function removeClient(id){ if(isGuest()){ toast(GUEST_MSG); return false; } const before = clients; clients = clients.filter(c => c.id!==id);
   const m0 = getMeta(); setMeta({deleted: [...new Set([...(m0.deleted||[]), id])]});
   if(!persist()){ clients = before; setMeta({deleted: m0.deleted||[]}); return false; } return true; }
 
@@ -284,6 +291,7 @@ let syncBusy = false;
 async function syncNow(pwTry, manual){
   if(syncBusy) return; syncBusy = true;
   try {
+    if(isGuest() && !pwTry){ await guestSync(getPw(), manual, false); return; }
     let box;
     try { const r = await fetch("data/clients.enc.json?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0; box = await r.json(); }
     catch(e){ syncState.status = "offline"; if(manual) toast("Нет связи — работаю с сохранёнными данными"); render(); return; }
@@ -291,7 +299,7 @@ async function syncNow(pwTry, manual){
     if(!pw){ syncState.needPw = true; render(); return; }
     let snap;
     try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
-    catch(e){ if(pwTry) toast("Неверный пароль"); else setPw(""); syncState.needPw = true; render(); return; }
+    catch(e){ if(pwTry && await guestSync(pwTry, manual, true)) return; if(pwTry) toast("Неверный пароль"); else setPw(""); syncState.needPw = true; render(); return; }
     setPw(pw); syncState.needPw = false; syncState.updated = snap.updated; syncState.status = "ok";
     const m = getMeta();
     if(m.lastSync !== snap.updated){
@@ -319,7 +327,7 @@ async function sealBox(bytes, pw){
 }
 const ghHeaders = tok => ({Authorization: "Bearer " + tok, Accept: "application/vnd.github+json"});
 let upTimer = null, upBusy = false;
-function scheduleUpload(){ if(!getGh() || !getPw()) return; clearTimeout(upTimer); upTimer = setTimeout(() => uploadNow(), 1500); }
+function scheduleUpload(){ if(isGuest() || !getGh() || !getPw()) return; clearTimeout(upTimer); upTimer = setTimeout(() => uploadNow(), 1500); }
 async function uploadNow(manual){
   const tok = getGh(), pw = getPw();
   if(!tok || !pw){ if(manual) toast("Сначала подключите отправку"); return false; }
@@ -328,14 +336,8 @@ async function uploadNow(manual){
   try {
     const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: getMeta().deleted || []});
     const box = await sealBox(new TextEncoder().encode(body), pw);
-    const api = `https://api.github.com/repos/${REPO}/contents/${UPATH}`;
-    const g = await fetch(api + "?ref=main", {headers: ghHeaders(tok), cache: "no-store"});
-    if(g.status===401 || g.status===403) throw new Error("token");
-    const sha = g.ok ? (await g.json()).sha : undefined;
-    const r = await fetch(api, {method:"PUT", headers:{...ghHeaders(tok), "Content-Type":"application/json"},
-      body: JSON.stringify({message:"Данные из приложения", content: btoa(JSON.stringify(box)), branch:"main", ...(sha ? {sha} : {})})});
-    if(r.status===401 || r.status===403 || r.status===404) throw new Error("token");
-    if(!r.ok) throw new Error("http");
+    await putFile(tok, UPATH, box, "Данные из приложения [skip ci]");
+    if(getGuest().pw) await putGuestCopy(tok).catch(() => {});
     setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: ""});
     if(manual) toast("Отправлено");
     return true;
@@ -344,6 +346,153 @@ async function uploadNow(manual){
     if(manual) toast(getMeta().upErr); return false;
   } finally { upBusy = false; if(openId==="data") renderPanel(); if(isDirty() && getMeta().upRev===rev && !getMeta().upErr) scheduleUpload(); }
 }
+// ---------- гостевой доступ (только просмотр) и «в сети»
+const ROLEKEY = "wayteko.role.v1", GUESTKEY = "wayteko.guest.v1", GPATH = "data/app.guest.enc.json", NTFY = "https://ntfy.sh/";
+const GUEST_MSG = "Гостевой доступ: только просмотр";
+const APP_URL = "https://ezakharov1222-lgtm.github.io/Wayteko/";
+const TABNAME = {today:"Сегодня", board:"Воронка", all:"Все клиенты", arch:"Филиал и отказы", data:"Данные"};
+function getRole(){ try { return localStorage.getItem(ROLEKEY) || ""; } catch(e){ return ""; } }
+function setRole(r){ try { r ? localStorage.setItem(ROLEKEY, r) : localStorage.removeItem(ROLEKEY); } catch(e){} applyRole(); }
+function isGuest(){ return getRole() === "guest"; }
+function applyRole(){ document.documentElement.classList.toggle("guest", isGuest()); }
+function getGuest(){ try { return JSON.parse(localStorage.getItem(GUESTKEY) || "{}"); } catch(e){ return {}; } }
+function setGuest(g){ try { g ? localStorage.setItem(GUESTKEY, JSON.stringify(g)) : localStorage.removeItem(GUESTKEY); } catch(e){} }
+function saveLocalOnly(){ try { localStorage.setItem(KEY, JSON.stringify(clients)); } catch(e){} }
+function genGuestPw(){ const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = crypto.getRandomValues(new Uint8Array(12)); let o = "G"; for(let i = 0; i < 12; i++){ if(i % 4 === 0) o += "-"; o += a.at(r.at(i) % a.length); } return o; }
+async function putFile(tok, path, box, message){
+  const api = `https://api.github.com/repos/${REPO}/contents/${path}`;
+  const g = await fetch(api + "?ref=main", {headers: ghHeaders(tok), cache: "no-store"});
+  if(g.status===401 || g.status===403) throw new Error("token");
+  const sha = g.ok ? (await g.json()).sha : undefined;
+  const r = await fetch(api, {method:"PUT", headers:{...ghHeaders(tok), "Content-Type":"application/json"},
+    body: JSON.stringify({message, content: btoa(JSON.stringify(box)), branch:"main", ...(sha ? {sha} : {})})});
+  if(r.status===401 || r.status===403 || r.status===404) throw new Error("token");
+  if(!r.ok) throw new Error("http");
+}
+async function deleteFile(tok, path, message){
+  const api = `https://api.github.com/repos/${REPO}/contents/${path}`;
+  const g = await fetch(api + "?ref=main", {headers: ghHeaders(tok), cache: "no-store"});
+  if(g.status===404) return;
+  if(g.status===401 || g.status===403) throw new Error("token");
+  if(!g.ok) throw new Error("http");
+  const r = await fetch(api, {method:"DELETE", headers:{...ghHeaders(tok), "Content-Type":"application/json"}, body: JSON.stringify({message, sha:(await g.json()).sha, branch:"main"})});
+  if(!r.ok) throw new Error("http");
+}
+async function putGuestCopy(tok){
+  const g = getGuest(); if(!g.pw) return;
+  const body = JSON.stringify({updated: new Date().toISOString(), clients, guestName: g.name || ""});
+  await putFile(tok, GPATH, await sealBox(new TextEncoder().encode(body), g.pw), "Гостевая копия [skip ci]");
+}
+async function fetchGuestBox(){
+  const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${GPATH}?ref=main&t=${Date.now()}`, {headers:{Accept:"application/vnd.github.raw"}, cache:"no-store"});
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error("http");
+  return await r.json();
+}
+function guestRevoked(){
+  beat("off"); setPw(""); setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null});
+  syncState.needPw = true; closePanel(); toast("Гостевой доступ изменён или отключён владельцем"); render();
+}
+async function guestSync(pw, manual, login){
+  let box;
+  try { box = await fetchGuestBox(); }
+  catch(e){ if(login) return false; syncState.status = "offline"; if(manual) toast("Нет связи — показываю сохранённые данные"); render(); return true; }
+  if(!box){ if(!login) guestRevoked(); return false; }
+  let snap;
+  try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
+  catch(e){ if(!login) guestRevoked(); return false; }
+  setPw(pw); setRole("guest"); syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
+  clients = normalizeImport(snap.clients || []); saveLocalOnly();
+  setMeta({lastSync: snap.updated, guestName: snap.guestName || ""});
+  if(login) toast("Гостевой доступ: только просмотр");
+  else if(manual) toast("Данные обновлены");
+  render(); startPresence(); return true;
+}
+async function presenceTopic(gpw){
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("wayteko-presence:" + gpw)));
+  return "wtk" + Array.from(h.slice(0, 12), b => b.toString(16).padStart(2, "0")).join("");
+}
+async function beat(state){
+  if(!isGuest() || !getPw()) return;
+  try { const t = await presenceTopic(getPw());
+    fetch(NTFY + t, {method:"POST", body: JSON.stringify({s: state, tab: openId==="data" ? "data" : tab}), keepalive: true}).catch(() => {}); } catch(e){}
+}
+let presTimer = null;
+function startPresence(){
+  if(presTimer || !isGuest()) return;
+  beat("on");
+  presTimer = setInterval(() => { if(!document.hidden && isGuest()){ beat("on"); syncNow(); } }, 120000);
+}
+let guestSeen = null;
+async function checkGuest(){
+  const g = getGuest(); if(!g.pw || isGuest()){ guestSeen = null; renderGuestPill(); return; }
+  try {
+    const t = await presenceTopic(g.pw);
+    const r = await fetch(`${NTFY}${t}/json?poll=1&since=12h`, {cache:"no-store"}); if(!r.ok) throw 0;
+    const ev = (await r.text()).split("\n").map(l => { try { return JSON.parse(l); } catch(e){ return null; } }).filter(x => x && x.event === "message");
+    const last = ev.at(-1);
+    if(!last) guestSeen = {online:false, at:null};
+    else { let p = {}; try { p = JSON.parse(last.message); } catch(e){}
+      guestSeen = {online: p.s === "on" && Date.now()/1000 - last.time < 170, at: last.time * 1000, tab: p.tab}; }
+  } catch(e){ guestSeen = guestSeen && !guestSeen.err ? guestSeen : {online:false, at:null, err:true}; }
+  renderGuestPill();
+  const a = document.activeElement;
+  if(openId==="data" && !(a && overlay.contains(a) && /INPUT|TEXTAREA/.test(a.tagName))) renderPanel();
+}
+function renderGuestPill(){
+  const el = document.getElementById("guestPill"); if(!el) return;
+  if(isGuest()){ el.hidden = false; el.className = "gpill view"; el.textContent = "👁 Гость · только просмотр"; }
+  else if(guestSeen && guestSeen.online){ el.hidden = false; el.className = "gpill"; el.textContent = "🟢 " + (getGuest().name || "Гость") + " в сети"; }
+  else el.hidden = true;
+}
+function guestMessage(pw){
+  return `WAYTEKO — гостевой доступ (только просмотр)\nСсылка: ${APP_URL}\nПароль: ${pw}\n\nОткройте ссылку в Safari и введите пароль. Чтобы поставить на экран: «Поделиться» → «На экран «Домой»», затем откройте значок и введите пароль ещё раз.`;
+}
+function guestBox(){
+  const g = getGuest(), gs = guestSeen;
+  if(!g.pw) return `<div class="box"><h4>Гостевой доступ</h4>
+    <div class="note">Гость сможет только смотреть клиентов, касания и встречи — без права изменений. Пароль вы отправляете ему сами.</div>
+    ${getGh() ? `<form id="guestForm" style="display:grid;gap:8px"><label class="f">Имя гостя (видно только вам)<input id="gname" type="text" placeholder="Например: Иван, директор"></label>
+      <button class="btn primary" type="submit">Создать гостевой доступ</button></form>`
+    : `<div class="note">Сначала подключите отправку в интернет-версию (блок выше) — через неё гость получает данные.</div>`}</div>`;
+  const status = !gs ? "проверяю…" : gs.online ? `🟢 в сети сейчас${gs.tab && TABNAME[gs.tab] ? " · смотрит «" + TABNAME[gs.tab] + "»" : ""}`
+    : gs.at ? `был в сети ${esc(fmtStamp(new Date(gs.at).toISOString()))}` : gs.err ? "статус сейчас недоступен" : "ещё не заходил (за последние 12 часов)";
+  return `<div class="box"><h4>Гостевой доступ${g.name ? " · " + esc(g.name) : ""}</h4>
+    <div>Статус: <b>${status}</b></div>
+    <div>Пароль гостя: <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.03em">${esc(g.pw)}</b></div>
+    <div class="actions"><button class="btn primary small" data-act="g-share" type="button">📤 Отправить гостю</button>
+      <button class="btn small" data-act="g-copy" type="button">Скопировать</button></div>
+    <div class="actions"><button class="btn ghost small" data-act="g-new" type="button">Сменить пароль</button>
+      <button class="btn ghost small" data-act="g-off" type="button" style="color:var(--red)">Отключить доступ</button></div>
+    <div class="note">Гость видит ваши изменения через 2–3 минуты. Статус «в сети» обновляется раз в пару минут; после смены пароля или отключения гость теряет доступ при следующем обновлении.</div></div>`;
+}
+function guestDataPanel(){
+  const m = getMeta();
+  return `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="Данные">
+    <div class="head"><h2>Данные</h2><button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
+    <div class="box"><h4>Гостевой доступ</h4>
+      <div>Вы вошли как гость: можно только смотреть, изменения недоступны.</div>
+      <div>Клиентов: <b>${clients.length}</b>. Данные от: <b>${m.lastSync ? esc(fmtStamp(m.lastSync)) : "—"}</b>${syncState.status==="offline" ? " · сейчас нет связи" : ""}.</div>
+      <div class="note">Данные обновляются автоматически, пока приложение открыто.</div>
+      <div class="actions"><button class="btn small" data-act="sync" type="button">🔄 Обновить сейчас</button>
+        <button class="btn ghost small" data-act="logout" type="button">Выйти</button></div></div>
+  </aside>`;
+}
+async function guestAction(kind){
+  const tok = getGh(); if(!tok){ toast("Сначала подключите отправку"); return; }
+  try {
+    if(kind === "create" || kind === "new"){
+      const name = kind === "create" ? (overlay.querySelector("#gname")?.value || "").trim() : (getGuest().name || "");
+      const prev = getGuest(); setGuest({pw: genGuestPw(), name, created: new Date().toISOString()});
+      try { await putGuestCopy(tok); } catch(e){ setGuest(prev.pw ? prev : null); throw e; }
+      guestSeen = null; toast(kind === "create" ? "Гостевой доступ создан — отправьте пароль гостю" : "Пароль сменён — старый больше не работает");
+    } else if(kind === "off"){
+      await deleteFile(tok, GPATH, "Гостевой доступ отключён [skip ci]"); setGuest(null); guestSeen = null; toast("Гостевой доступ отключён");
+    }
+  } catch(e){ toast(e && e.message === "token" ? "Токен не подходит — подключите отправку заново" : "Нет связи, попробуйте ещё раз"); }
+  renderGuestPill(); renderPanel(); if(getGuest().pw) checkGuest();
+}
+
 function uploadBox(){
   const m = getMeta(), on = !!getGh();
   return `<div class="box"><h4>Отправка в интернет-версию</h4>
@@ -366,7 +515,7 @@ async function downloadXlsx(){
 }
 function pwHtml(){
   return `<form class="welcome" id="pwForm"><h2>Вход в WAYTEKO</h2>
-    <div>Введите пароль, который прислал Claude. Он нужен один раз: приложение запомнит его на этом устройстве и будет каждый день подтягивать свежую базу из интернет-версии.</div>
+    <div>Введите пароль — основной или гостевой. Он нужен один раз: приложение запомнит его на этом устройстве и само будет подтягивать свежую базу.</div>
     <label class="f">Пароль<input id="pw" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>
     <div class="actions"><button class="btn primary" type="submit">Войти</button></div></form>`;
 }
@@ -454,6 +603,7 @@ function renderDataPanel(){
         <button class="btn primary" data-act="xlsx" type="button">📥 Скачать файл клиентов (Excel)</button>
         <button class="btn" data-act="sync" type="button">🔄 Обновить сейчас</button></div></div>
     ${uploadBox()}
+    ${guestBox()}
     <div class="box"><h4>Резервная копия</h4>
       <div class="note">Последняя резервная копия этого устройства: ${esc(last)}.</div></div>
     ${pendingImport ? `<div class="box"><h4>Загрузка файла</h4><div>В файле клиентов: <b>${pendingImport.length}</b>. Сейчас в приложении: <b>${clients.length}</b>.</div>
@@ -478,7 +628,7 @@ function welcomeHtml(){
 
 // ---------- рендер
 function render(){
-  { const ls = getMeta().lastSync; $("#todayLbl").textContent = "Сегодня " + fmtW(todayIso()) + (ls ? " · база от " + fmtStamp(ls) : ""); }
+  { const ls = getMeta().lastSync; $("#todayLbl").textContent = "Сегодня " + fmtW(todayIso()) + (ls ? " · база от " + fmtStamp(ls) : ""); renderGuestPill(); }
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab===tab)));
   const act = clients.filter(c => !["branch","refused"].includes(c.temp));
   const over = act.filter(c => callState(c).k==="over"), today = act.filter(c => callState(c).k==="today");
@@ -626,7 +776,7 @@ function renderArch(){
 // ---------- карточка клиента
 let draft = {}, confirmDel = false, editing = false;
 function renderPanel(focus){
-  if(openId==="data"){ overlay.hidden = false; overlay.innerHTML = renderDataPanel(); return; }
+  if(openId==="data"){ overlay.hidden = false; overlay.innerHTML = isGuest() ? guestDataPanel() : renderDataPanel(); return; }
   const c = openId==="new" ? null : clients.find(x => x.id===openId);
   if(openId!=="new" && !c){ closePanel(); return; }
   overlay.hidden = false;
@@ -712,14 +862,20 @@ document.addEventListener("click", async e => {
     if(c && m && typeof exportMeetIcs==="function") exportMeetIcs(c,m); return; }
   if(t.dataset.open){ openPanel(t.dataset.open, !!t.dataset.focus); return; }
   if(t.id==="addBtn" || t.id==="addBtn2"){ openPanel("new"); return; }
-  if(t.id==="dataBtn"){ pendingImport = null; openPanel("data"); return; }
+  if(t.id==="dataBtn"){ pendingImport = null; openPanel("data"); if(!isGuest()) checkGuest(); return; }
   if(t.dataset.act==="backup"){ exportBackup(); return; }
   if(t.dataset.act==="csv"){ exportCsv(); return; }
   if(t.dataset.act==="xlsx"){ downloadXlsx(); return; }
   if(t.dataset.act==="upload"){ await uploadNow(true); return; }
   if(t.dataset.act==="ghoff"){ setGh(""); setMeta({upErr:""}); renderPanel(); return; }
   if(t.dataset.act==="sync"){ await syncNow(null, true); return; }
-  if(t.dataset.act==="logout"){ setPw(""); syncState.needPw = true; closePanel(); render(); return; }
+  if(t.dataset.act==="logout"){ if(isGuest()){ beat("off"); setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null}); }
+    setPw(""); syncState.needPw = true; closePanel(); render(); return; }
+  if(t.dataset.act==="g-share" || t.dataset.act==="g-copy"){ const txt = guestMessage(getGuest().pw || "");
+    if(t.dataset.act==="g-share" && navigator.share){ try { await navigator.share({text: txt}); } catch(_){} return; }
+    try { await navigator.clipboard.writeText(txt); toast("Скопировано — вставьте в сообщение гостю"); } catch(_){ toast(getGuest().pw); } return; }
+  if(t.dataset.act==="g-new"){ await guestAction("new"); return; }
+  if(t.dataset.act==="g-off"){ await guestAction("off"); return; }
   if(t.dataset.act==="imp-replace"){ applyImport("replace"); return; }
   if(t.dataset.act==="imp-merge"){ applyImport("merge"); return; }
   if(t.dataset.act==="imp-cancel"){ pendingImport = null; renderPanel(); return; }
@@ -764,6 +920,7 @@ document.addEventListener("submit", async e => {
       if(!r.ok) throw 0; const j = await r.json(); if(j.permissions && !j.permissions.push) throw 0; }
     catch(_){ toast("Токен не подходит: нужен доступ к репозиторию wayteko на запись"); return; }
     setGh(tok); setMeta({upErr:"", upRev: -1}); renderPanel(); await uploadNow(true); return; }
+  if(e.target.id==="guestForm"){ await guestAction("create"); return; }
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
     const v = id => overlay.querySelector(id).value.trim();
@@ -794,8 +951,13 @@ if(stored===null){ render(); view.innerHTML = `<div class="empty">Память �
 else { clients = Array.isArray(stored) ? stored : []; render(); }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(_){}
 if("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
-document.addEventListener("visibilitychange", () => { if(!document.hidden){ if(!openId) render(); syncNow(); } });
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ if(isGuest()) beat("off"); return; }
+  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else checkGuest(); });
+applyRole();
 if(stored!==null) syncNow();
+if(isGuest()) startPresence(); else checkGuest();
+setInterval(() => { if(!document.hidden && !isGuest() && getGuest().pw) checkGuest(); }, 30000);
 setInterval(() => { if(loaded && !openId) render(); }, 60000);
 })();
 </script>
