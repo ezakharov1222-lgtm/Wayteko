@@ -245,7 +245,7 @@ function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = fals
 // ---------- хранение: только на этом устройстве
 const KEY = "wayteko.clients.v1", META = "wayteko.meta.v1";
 function loadLocal(){ try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : []; } catch(e){ return null; } }
-function persist(){ try { localStorage.setItem(KEY, JSON.stringify(clients)); setMeta({rev: (getMeta().rev||0) + 1}); scheduleUpload(); return true; }
+function persist(){ if(isGuest()){ toast(GUEST_MSG); return false; } try { localStorage.setItem(KEY, JSON.stringify(clients)); setMeta({rev: (getMeta().rev||0) + 1}); scheduleUpload(); return true; }
   catch(e){ toast("Не сохранилось: память для приложения недоступна"); return false; } }
 function getMeta(){ try { return JSON.parse(localStorage.getItem(META) || "{}"); } catch(e){ return {}; } }
 function setMeta(p){ try { localStorage.setItem(META, JSON.stringify({...getMeta(), ...p})); } catch(e){} }
@@ -647,6 +647,7 @@ function normalizeImport(list){
 }
 function applyImport(mode){
   if(!pendingImport) return;
+  if(isGuest()){ pendingImport = null; toast(GUEST_MSG); return; }
   const before = clients;
   if(mode==="replace") clients = pendingImport;
   else { const ids = new Set(clients.map(c => c.id)), names = new Set(clients.map(c => c.name.trim().toLowerCase()));
