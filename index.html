@@ -147,6 +147,8 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .stack{display:grid;gap:8px}
 .stack .btn{text-align:left}
 .note{font-size:13px;color:var(--muted)}
+.locked header.top,.locked #stats,.locked #tabs,.locked #banner,.locked #overlay{display:none!important}
+.locked .wrap{padding-top:max(32px,env(safe-area-inset-top,0px))}
 .gpill{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--green-bg);color:var(--green)}
 .gpill.view{background:var(--steel-soft);color:var(--steel)}
 .guest #addBtn,.guest #addBtn2,.guest [data-move],.guest [data-focus],.guest [data-meet-open]:not(.meet-on),.guest [data-meet-done],.guest [data-meet-del],
@@ -749,7 +751,8 @@ function render(){
   if(clients.length && !m.lastSync && (since===null || since>=7)){ bn.hidden = false; bn.className = "banner";
     bn.innerHTML = `<span>💾 ${since===null ? "Резервная копия ещё не сохранялась" : `Резервной копии <b>${since} дн.</b>`}</span><button class="btn small" data-act="backup" type="button">Сохранить сейчас</button>`; }
   else bn.hidden = true;
-  if(syncState.needPw) view.innerHTML = pwHtml();
+  document.documentElement.classList.toggle("locked", !!syncState.needPw);
+  if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }
   else if(!clients.length) view.innerHTML = welcomeHtml();
   else if(tab==="today") view.innerHTML = renderToday(over, today, week);
   else if(tab==="board") view.innerHTML = renderBoard();
@@ -1053,7 +1056,7 @@ document.addEventListener("submit", async e => {
 const stored = loadLocal();
 loaded = true;
 if(stored===null){ render(); view.innerHTML = `<div class="empty">Память для приложения недоступна. Откройте WAYTEKO с главного экрана или выключите «Частный доступ» в Safari.</div>`; }
-else { clients = Array.isArray(stored) ? stored : []; render(); }
+else { clients = Array.isArray(stored) ? stored : []; if(!getPw()) syncState.needPw = true; render(); }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(_){}
 if("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 document.addEventListener("visibilitychange", () => {
