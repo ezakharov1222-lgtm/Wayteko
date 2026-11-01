@@ -137,6 +137,12 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .mrow{display:grid;gap:4px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
 .mrow:first-of-type{border-top:0}
 .mrow.done{opacity:.6}
+.ot-row{display:flex;align-items:flex-start;gap:10px}
+.ot-body{flex:1;min-width:0;display:grid;gap:2px}
+.ot-box{width:26px;height:26px;flex:0 0 auto;border-radius:7px;border:2px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:var(--surface)}
+.ot-done .ot-box{background:var(--green);border-color:var(--green)}
+.ot-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.ot-done .ot-text{text-decoration:line-through;color:var(--muted)}
 
 .hdr-actions{display:flex;gap:8px}
 .welcome{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px;display:grid;gap:12px}
@@ -249,7 +255,7 @@ function callState(c){
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 
 // ---------- состояние
-let db = null, clients = [], loaded = false, tab = "today", openId = null, filterTemp = "", query = "";
+let db = null, clients = [], loaded = false, tab = "today", openId = null, filterTemp = "", query = "", onlineTasks = [];
 try { tab = localStorage.getItem("vcrm-tab") || "today"; } catch(e) {}
 const $ = s => document.querySelector(s);
 const view = $("#view"), overlay = $("#overlay");
@@ -838,6 +844,7 @@ function render(){
   if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }
   else if(!clients.length) view.innerHTML = welcomeHtml();
   else if(tab==="today") view.innerHTML = renderToday(over, today, week);
+  else if(tab==="otasks") view.innerHTML = db ? renderOnlineTasks() : "";
   else if(tab==="tasks") renderTasks();
   else if(tab==="board") view.innerHTML = renderBoard();
   else if(tab==="all") renderAll();
@@ -845,6 +852,27 @@ function render(){
   if(openId) renderPanel();
 }
 const byNext = (a,b) => (a.next||"9999").localeCompare(b.next||"9999") || a.name.localeCompare(b.name,"ru");
+
+// ---------- задачи (копия из приложения, только просмотр)
+function otRow(t){
+  const c = t.cid ? clients.find(x => x.id === t.cid) : null;
+  const who = c ? `<button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>` : (t.cname ? `<b>${esc(t.cname)}</b>` : "");
+  return `<article class="card ot ${t.done ? "ot-done" : ""}"><div class="ot-row"><span class="ot-box" aria-label="${t.done ? "выполнена" : "не выполнена"}">${t.done ? "✓" : ""}</span>
+    <div class="ot-body">${who}<div class="ot-text">${esc(t.text)}</div></div></div></article>`;
+}
+function renderOnlineTasks(){
+  const today = todayIso(), wk = addDays(null, 7), all = onlineTasks.filter(t => t && !t.del);
+  const by = (a, b) => (a.d || "").localeCompare(b.d || "") || (a.created || "").localeCompare(b.created || "");
+  const tdy = all.filter(t => t.d === today).sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || by(a, b));
+  const over = all.filter(t => !t.done && t.d < today).sort(by);
+  const next = all.filter(t => t.d > today && t.d <= wk).sort(by);
+  const days = [...new Set(next.map(t => t.d))];
+  let h = `<p class="muted" style="margin:0 0 10px">Задачи ведутся в приложении WAYTEKO, здесь — их копия только для просмотра, обновляется каждый вечер.</p>`;
+  h += `<h2 class="sec">📋 Сегодня <span class="n">${tdy.filter(t => !t.done).length} из ${tdy.length} осталось</span></h2>` + (tdy.length ? `<div class="list">${tdy.map(otRow).join("")}</div>` : `<div class="empty">Задач на сегодня нет.</div>`);
+  if(over.length) h += `<h2 class="sec">⏰ Не выполнено раньше <span class="n">${over.length}</span></h2><div class="list">${over.map(t => otRow(t).replace('<div class="ot-text">', `<div class="muted" style="font-size:12px">${esc(fmtW(t.d))}</div><div class="ot-text">`)).join("")}</div>`;
+  days.forEach(d => { const l = next.filter(t => t.d === d); h += `<h2 class="sec">${esc(fmtW(d))} <span class="n">${l.length}</span></h2><div class="list">${l.map(otRow).join("")}</div>`; });
+  return h;
+}
 
 // ---------- встречи
 const meetSort = (a,b) => (a.d+" "+(a.t||"99:99")).localeCompare(b.d+" "+(b.t||"99:99"));
