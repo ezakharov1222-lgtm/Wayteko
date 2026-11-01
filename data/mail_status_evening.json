@@ -1,1 +1,1 @@
-{"report":"evening","date":"2026-11-02","time_msk":"02:35","sent":true,"attachment":false,"tool":"mcp__Gmail__send_message","error":"вложение не приложено: файл слишком велик для надёжной передачи в base64 через вызов инструмента"}
+{"report":"evening","date":"2026-11-02","time_msk":"02:36","sent":true,"attachment":false,"tool":"mcp__Gmail__send_message","error":"вложение не приложено: файл (~38 КБ в base64) нельзя надёжно передать через параметр инструмента"}
