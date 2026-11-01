@@ -1,0 +1,557 @@
+<title>WAYTEKO</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: рабочий экран менеджера — шапка со счётчиками, вкладки, списки карточек, карточка клиента выезжает панелью */
+:root{
+  --bg:#eef1f5; --surface:#ffffff; --surface-2:#f6f8fb; --line:#d6dde6;
+  --fg:#16212e; --muted:#5d6b7c; --steel:#1f4e78; --steel-soft:#dbe7f3;
+  --red:#c7372f; --red-bg:#fde3e1; --yellow:#8a6400; --yellow-bg:#fff1bf;
+  --green:#2e7a3c; --green-bg:#dcf1df; --last-bg:#e3f4e6;
+  --hot:#d9480f; --warm:#b7791f; --cold:#2b6cb0; --dealer:#2e7a3c; --arch:#7a8594;
+  --display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --r:10px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f151c; --surface:#17202a; --surface-2:#1d2834; --line:#2c3a49;
+  --fg:#e6edf5; --muted:#93a3b5; --steel:#7fb2e0; --steel-soft:#1f3347;
+  --red:#ff8a80; --red-bg:#4a1f1d; --yellow:#ffd666; --yellow-bg:#4a3c12;
+  --green:#7fd18c; --green-bg:#1d3a23; --last-bg:#1c3424;
+  --hot:#ff8a50; --warm:#f0b44c; --cold:#7fb2e0; --dealer:#7fd18c; --arch:#93a3b5; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151c; --surface:#17202a; --surface-2:#1d2834; --line:#2c3a49;
+  --fg:#e6edf5; --muted:#93a3b5; --steel:#7fb2e0; --steel-soft:#1f3347;
+  --red:#ff8a80; --red-bg:#4a1f1d; --yellow:#ffd666; --yellow-bg:#4a3c12;
+  --green:#7fd18c; --green-bg:#1d3a23; --last-bg:#1c3424;
+  --hot:#ff8a50; --warm:#f0b44c; --cold:#7fb2e0; --dealer:#7fd18c; --arch:#93a3b5; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.4;font-variant-numeric:tabular-nums}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 90px}
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px 16px;margin-bottom:12px}
+.brand h1{font-family:var(--display);font-weight:700;font-size:22px;margin:0;letter-spacing:.01em;color:var(--steel)}
+.brand .date{color:var(--muted);font-size:13px;margin-top:2px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 12px;font-weight:600}
+.btn.primary{background:var(--steel);border-color:var(--steel);color:var(--surface)}
+.btn.ghost{background:transparent}
+.btn.small{padding:5px 9px;font-size:13px;font-weight:500}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;text-align:left}
+.stat b{display:block;font-family:var(--display);font-size:22px;font-weight:500}
+.stat span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.stat.all{background:var(--steel);border-color:var(--steel);color:var(--surface)}.stat.all b{color:var(--surface)}.stat.all span{color:var(--surface);opacity:.85}.stat.all[aria-pressed="true"]{box-shadow:0 0 0 3px var(--steel-soft)}
+.stat.red{background:var(--red-bg);border-color:transparent}.stat.red b{color:var(--red)}
+.stat.yellow{background:var(--yellow-bg);border-color:transparent}.stat.yellow b{color:var(--yellow)}
+nav.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:4px;margin-bottom:14px;overflow-x:auto}
+nav.tabs button{flex:1 0 auto;border:0;background:transparent;border-radius:7px;padding:9px 12px;font-weight:600;color:var(--muted);white-space:nowrap}
+nav.tabs button[aria-selected="true"]{background:var(--steel);color:var(--surface)}
+h2.sec{font-family:var(--display);font-weight:500;font-size:15px;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
+h2.sec .n{font-family:var(--body);font-size:13px;color:var(--muted);font-weight:500}
+.list{display:grid;gap:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:8px;min-width:0}
+.card.over{border-left-color:var(--red);background:linear-gradient(90deg,var(--red-bg),var(--surface) 55%)}
+.card.today{border-left-color:#e0b000;background:linear-gradient(90deg,var(--yellow-bg),var(--surface) 55%)}
+.card .row1{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.name{font-weight:700;font-size:16px;background:none;border:0;padding:0;text-align:left;color:var(--fg);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.name:hover{text-decoration-color:var(--steel)}
+.pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:600;white-space:nowrap}
+.pill.over{background:var(--red);color:var(--surface)}
+.pill.today{background:#f2c200;color:#2b2100}
+.pill.plan{background:var(--steel-soft);color:var(--steel)}
+.pill.none{background:var(--surface-2);color:var(--muted);border:1px dashed var(--line)}
+.temp{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
+.t-hot{color:var(--hot)}.t-warm{color:var(--warm)}.t-cold{color:var(--cold)}.t-dealer{color:var(--dealer)}.t-branch,.t-refused{color:var(--arch)}
+.meta{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.last{background:var(--last-bg);border-radius:8px;padding:8px 10px;font-size:14px}
+.last small{display:block;color:var(--green);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+.rec{font-size:14px;display:flex;gap:6px}
+.rec::before{content:"➜";color:var(--steel);font-weight:700}
+.actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.actions .lbl{font-size:12px;color:var(--muted);margin-right:2px}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:18px;color:var(--muted);text-align:center}
+/* воронка */
+.board{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:10px;overflow-x:auto;padding-bottom:6px}
+.col{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:8px;display:grid;align-content:start;gap:6px;min-width:0}
+.col h3{margin:2px 4px 6px;font-size:14px;display:flex;justify-content:space-between}
+.mini{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;gap:4px;text-align:left;width:100%}
+.mini.over{border-left:4px solid var(--red)}.mini.today{border-left:4px solid #e0b000}
+.mini strong{font-size:14px}
+/* клиенты */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.filters input{flex:1 1 220px;min-width:0;border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:var(--surface)}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}
+.chip[aria-pressed="true"]{background:var(--steel);color:var(--surface);border-color:var(--steel)}
+/* панель клиента */
+.scrim{position:fixed;inset:0;background:rgba(10,20,30,.45);z-index:20}
+.panel{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--bg);z-index:21;overflow-y:auto;
+  padding-top:calc(env(safe-area-inset-top,0px) + 12px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 30px);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.panel .head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.panel h2{font-family:var(--display);font-weight:500;font-size:19px;margin:4px 0 2px;text-wrap:balance}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-top:10px;display:grid;gap:8px}
+.box h4{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.temps{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.temps button{border:1.5px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 4px;font-weight:600;font-size:13px}
+.temps button[aria-pressed="true"]{border-color:currentColor;background:var(--surface-2);box-shadow:inset 0 0 0 1px currentColor}
+.kv{display:grid;grid-template-columns:110px 1fr auto;gap:6px 8px;align-items:center;font-size:14px}
+.kv dt{color:var(--muted);font-size:13px}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+label.f input,label.f textarea,label.f select{border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface);color:var(--fg);font-weight:400;font-size:15px;width:100%}
+textarea{resize:vertical;min-height:70px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hist{display:grid;gap:0}
+.hist .it{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.hist .it:first-child{border-top:0}
+.hist .it.lastone{background:var(--last-bg);border-radius:8px;padding:8px;border-top:0}
+.hist time{color:var(--muted);font-size:13px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;z-index:40;font-size:14px}
+.confirm{background:var(--red-bg);border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.muted{color:var(--muted)}
+details summary{cursor:pointer;font-weight:600;color:var(--steel)}
+/* встречи */
+.banner{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;background:var(--yellow-bg);color:var(--fg);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:14px}
+.banner b{color:var(--yellow)}
+.btn.meet-on{background:var(--green-bg);border-color:var(--green);color:var(--green);font-weight:700}
+.mrow{display:grid;gap:4px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.mrow:first-of-type{border-top:0}
+.mrow.done{opacity:.6}
+.ot-row{display:flex;align-items:flex-start;gap:10px}
+.ot-body{flex:1;min-width:0;display:grid;gap:2px}
+.ot-box{width:26px;height:26px;flex:0 0 auto;border-radius:7px;border:2px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:var(--surface)}
+.ot-done .ot-box{background:var(--green);border-color:var(--green)}
+.ot-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.ot-done .ot-text{text-decoration:line-through;color:var(--muted)}
+.ot-pb{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:700}
+.ot-pb-urgent{background:#e5252a;color:#fff}.ot-pb-high{background:#ffe1b3;color:#8a4b00}.ot-pb-normal{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.card.ot-urgent{border-left-color:#e5252a;background:linear-gradient(90deg,rgba(229,37,42,.16),var(--surface) 65%)}
+.card.ot-high{border-left-color:#f59e0b}
+.ot-done{opacity:.7}
+@media (max-width:640px){
+  .board{grid-template-columns:repeat(4,82%)}
+  .kv{grid-template-columns:90px 1fr auto}
+  .grid2{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:no-preference){.panel{animation:slide .18s ease-out}@keyframes slide{from{transform:translateX(30px);opacity:.6}}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><h1>WAYTEKO</h1><div class="date" id="todayLbl"></div></div>
+    <button class="btn primary" id="addBtn" type="button">+ Новый клиент</button>
+  </header>
+  <section class="stats" id="stats" aria-label="Сводка"></section>
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="today" aria-selected="true">Сегодня</button>
+    <button role="tab" data-tab="board" aria-selected="false">Воронка</button>
+    <button role="tab" data-tab="all" aria-selected="false">Все клиенты</button>
+    <button role="tab" data-tab="arch" aria-selected="false">Филиал и отказы</button>
+  </nav>
+  <main id="view"><div class="empty">Загружаю клиентов…</div></main>
+</div>
+<div id="overlay" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+const TEMPS = {
+  hot:{l:"🔥 Горячий",c:"t-hot"}, warm:{l:"🌤 Тёплый",c:"t-warm"}, cold:{l:"❄ Холодный",c:"t-cold"},
+  dealer:{l:"✅ Дилер",c:"t-dealer"}, branch:{l:"↪ Филиал",c:"t-branch"}, refused:{l:"⛔ Отказ",c:"t-refused"}
+};
+const ACTIVE = ["hot","warm","cold","dealer"];
+const GOAL = 25;
+const RULES = [
+  [["не потянут"],"Предложить работу через филиал / ГЛОБАЛТРЕЙД"],
+  [["не дозвон","на дозвон","не берет","не берёт","не отвечает","не дойти","недозвон"],"Не дозвонились: написать в мессенджер или на почту и перезвонить в другое время"],
+  [["подпис","протокол"],"Дожать подписание: закрыть правки, получить подписанный договор и заказ"],
+  [["юрист"],"Узнать статус у юристов, предложить созвон юрист – юрист"],
+  [["заказ"],"Запросить заказ или спецификацию, выставить счёт, согласовать отгрузку"],
+  [["встреч"],"Подтвердить встречу накануне, взять КП, калькулятор маржи и условия дилерства"],
+  [["командиров","пауз","отпуск","зимы","ноябр"],"Связаться после паузы, вернуть к обсуждению заказа"],
+  [["цен","прайс","парсинг","матриц","считают","экономик","аналитик"],"Разобрать вопросы по ценам, показать маржу дилера, предложить тест со склада в НСК"],
+  [["догов"],"Уточнить вопросы по договору, назначить дату подписания"],
+  [["отправил","направил","кп","предложени","прислал"],"Убедиться, что КП получено, назначить разговор с ЛПР"],
+  [["в тг","в макс","написал","whatsapp","wechat"],"Проверить ответ в мессенджере, если молчат — позвонить ЛПР"],
+  [["перезвон","напомнить","созвон"],"Перезвонить в согласованный день"]
+];
+const DEFAULT_REC = "Позвонить: узнать решение и договориться о следующем шаге";
+
+// ---------- даты
+const pad = n => String(n).padStart(2,"0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const todayIso = () => iso(new Date());
+const addDays = (s,n) => { const d = s ? new Date(s+"T12:00:00") : new Date(); d.setDate(d.getDate()+n); return iso(d); };
+const nextMonday = () => { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return iso(d); };
+const diffDays = (a,b) => Math.round((new Date(a+"T12:00:00") - new Date(b+"T12:00:00"))/864e5);
+const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+const WD = ["вс","пн","вт","ср","чт","пт","сб"];
+const fmt = s => { if(!s) return ""; const d = new Date(s+"T12:00:00"); return `${d.getDate()} ${MON[d.getMonth()]}`; };
+const fmtW = s => { if(!s) return ""; const d = new Date(s+"T12:00:00"); return `${WD[d.getDay()]}, ${d.getDate()} ${MON[d.getMonth()]}`; };
+
+// ---------- логика клиента
+function lastTouch(c){ const t = (c.touches||[]).filter(x => x && x.t); return t.length ? t[t.length-1] : (c.intro ? {d:"",t:"Знакомство: "+c.intro} : null); }
+function recFor(c, text){
+  if(c.temp==="dealer") return "Поддержка дилера: остатки, подсортировка со склада в НСК, следующий заказ";
+  if(c.temp==="branch"||c.temp==="refused") return "";
+  const s = (text ?? (lastTouch(c)?.t || "")).toLowerCase();
+  for(const [keys,r] of RULES) if(keys.some(k => s.includes(k))) return r;
+  return DEFAULT_REC;
+}
+function callState(c){
+  if(c.temp==="branch"||c.temp==="refused") return {k:"arch"};
+  if(!c.next) return {k:"none", txt:"Нет даты"};
+  const dd = diffDays(c.next, todayIso());
+  if(dd<0) return {k:"over", txt:`Просрочено ${-dd} дн.`, days:-dd};
+  if(dd===0) return {k:"today", txt:"Сегодня"};
+  return {k:"plan", txt: dd===1 ? "Завтра" : fmtW(c.next), days:dd};
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+
+// ---------- состояние
+let db = null, clients = [], loaded = false, tab = "today", openId = null, filterTemp = "", query = "", onlineTasks = [];
+try { tab = localStorage.getItem("vcrm-tab") || "today"; } catch(e) {}
+const $ = s => document.querySelector(s);
+const view = $("#view"), overlay = $("#overlay");
+
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2200); }
+
+async function save(id, patch){
+  if(!db){ toast("Сохранение недоступно в этом просмотре"); return false; }
+  try { await db.collection("clients").doc(id).update({...patch, updated: new Date().toISOString()}); return true; }
+  catch(e){ toast(e && e.code==="invalid_argument" ? "Нет прав на изменение" : "Не сохранилось, попробуйте ещё раз"); return false; }
+}
+async function create(data){
+  if(!db){ toast("Сохранение недоступно в этом просмотре"); return null; }
+  const id = "c" + Date.now().toString(36);
+  try { await db.collection("clients").doc(id).set({...data, touches:[], created:new Date().toISOString(), updated:new Date().toISOString()}); return id; }
+  catch(e){ toast(e && e.code==="quota_exceeded" ? "База заполнена" : "Не сохранилось, попробуйте ещё раз"); return null; }
+}
+
+// ---------- рендер
+function render(){
+  $("#todayLbl").textContent = "Сегодня " + fmtW(todayIso());
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab===tab)));
+  const act = clients.filter(c => !["branch","refused"].includes(c.temp));
+  const over = act.filter(c => callState(c).k==="over"), today = act.filter(c => callState(c).k==="today");
+  const week = act.filter(c => { const s = callState(c); return s.k==="plan" && s.days<=7; });
+  $("#stats").innerHTML = `
+    <button class="stat all" data-go="all" data-gft="work" aria-pressed="${tab==="all" && filterTemp==="work"}" title="Клиенты в работе, без филиалов и отказов" type="button"><b>${act.length}</b><span>Все клиенты</span></button>
+    <button class="stat red" data-go="today" type="button"><b>${over.length}</b><span>Просрочено</span></button>
+    <button class="stat yellow" data-go="today" type="button"><b>${today.length}</b><span>Сегодня</span></button>
+    <button class="stat" data-go="today" type="button"><b>${week.length}</b><span>На 7 дней</span></button>
+    <button class="stat" data-go="board" type="button"><b>${clients.filter(c=>c.temp==="hot").length}</b><span>Горячих</span></button>
+    <button class="stat" data-go="board" type="button"><b>${clients.filter(c=>c.temp==="dealer").length} / ${GOAL}</b><span>Дилеров</span></button>`;
+  if(!loaded){ view.innerHTML = `<div class="empty">Загружаю клиентов…</div>`; return; }
+  if(tab==="today") view.innerHTML = renderToday(over, today, week);
+  else if(tab==="otasks") view.innerHTML = db ? renderOnlineTasks() : "";
+  else if(tab==="board") view.innerHTML = renderBoard();
+  else if(tab==="all") renderAll();
+  else view.innerHTML = renderArch();
+  if(openId) renderPanel();
+}
+const byNext = (a,b) => (a.next||"9999").localeCompare(b.next||"9999") || a.name.localeCompare(b.name,"ru");
+
+// ---------- задачи (копия из приложения, только просмотр)
+const OT_PRIO = {urgent: {l: "🔴 Срочно", r: 0}, high: {l: "🟠 Важно", r: 1}, normal: {l: "⚪ Обычно", r: 2}};
+const otP = t => OT_PRIO[t && t.prio] ? t.prio : "normal";
+function otRow(t){
+  const c = t.cid ? clients.find(x => x.id === t.cid) : null;
+  const who = c ? `<button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>` : (t.cname ? `<b>${esc(t.cname)}</b>` : "");
+  const p = otP(t);
+  return `<article class="card ot ot-${p} ${t.done ? "ot-done" : ""}"><div class="ot-row"><span class="ot-box" aria-label="${t.done ? "выполнена" : "не выполнена"}">${t.done ? "✓" : ""}</span>
+    <div class="ot-body"><div><span class="ot-pb ot-pb-${p}">${OT_PRIO[p].l}</span></div>${who}<div class="ot-text">${esc(t.text)}</div>${t.owner ? `<div class="muted" style="font-size:13px">👤 ${esc(t.owner)}</div>` : ""}</div></div></article>`;
+}
+function renderOnlineTasks(){
+  const today = todayIso(), wk = addDays(null, 7), all = onlineTasks.filter(t => t && !t.del);
+  const by = (a, b) => (a.d || "").localeCompare(b.d || "") || OT_PRIO[otP(a)].r - OT_PRIO[otP(b)].r || (a.created || "").localeCompare(b.created || "");
+  const byP = (a, b) => OT_PRIO[otP(a)].r - OT_PRIO[otP(b)].r || by(a, b);
+  const tdy = all.filter(t => t.d === today).sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || byP(a, b));
+  const over = all.filter(t => !t.done && t.d < today).sort(byP);
+  const next = all.filter(t => t.d > today && t.d <= wk).sort(by);
+  const days = [...new Set(next.map(t => t.d))];
+  let h = `<p class="muted" style="margin:0 0 10px">Задачи ведутся в приложении WAYTEKO, здесь — их копия только для просмотра, обновляется каждый вечер.</p>`;
+  h += `<h2 class="sec">📋 Сегодня <span class="n">${tdy.filter(t => !t.done).length} из ${tdy.length} осталось</span></h2>` + (tdy.length ? `<div class="list">${tdy.map(otRow).join("")}</div>` : `<div class="empty">Задач на сегодня нет.</div>`);
+  if(over.length) h += `<h2 class="sec">⏰ Не выполнено раньше <span class="n">${over.length}</span></h2><div class="list">${over.map(t => otRow(t).replace('<div class="ot-text">', `<div class="muted" style="font-size:12px">${esc(fmtW(t.d))}</div><div class="ot-text">`)).join("")}</div>`;
+  days.forEach(d => { const l = next.filter(t => t.d === d); h += `<h2 class="sec">${esc(fmtW(d))} <span class="n">${l.length}</span></h2><div class="list">${l.map(otRow).join("")}</div>`; });
+  return h;
+}
+
+// ---------- встречи
+const meetSort = (a,b) => (a.d+" "+(a.t||"99:99")).localeCompare(b.d+" "+(b.t||"99:99"));
+const meetsOf = c => (c.meets||[]).filter(m => m && m.d).sort(meetSort);
+const nextMeet = c => meetsOf(c).find(m => !m.done && diffDays(m.d, todayIso()) >= 0) || null;
+function upcomingMeets(maxDays){
+  const out = [];
+  clients.forEach(c => meetsOf(c).forEach(m => { const dd = diffDays(m.d, todayIso()); if(!m.done && dd>=0 && dd<=maxDays) out.push({c, m, dd}); }));
+  return out.sort((a,b) => meetSort(a.m,b.m));
+}
+const dayWord = dd => dd===0 ? "сегодня" : dd===1 ? "завтра" : `через ${dd} дн.`;
+function meetBtn(c){
+  const n = nextMeet(c);
+  return n ? `<button class="btn small meet-on" data-meet-open="${c.id}" type="button">🤝 ${esc(fmt(n.d))}${n.t?" "+esc(n.t):""} · ${esc(dayWord(diffDays(n.d,todayIso())))}</button>`
+           : `<button class="btn small" data-meet-open="${c.id}" type="button">🤝 Назначить встречу</button>`;
+}
+function meetCard({c, m, dd}){
+  return `<article class="card ${dd<=3?"today":""}">
+    <div class="row1"><span class="pill ${dd===0?"today":"plan"}">${esc(dayWord(dd))}</span>
+      <button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button></div>
+    <div class="meta"><span>📅 ${esc(fmtW(m.d))}${m.t?" в "+esc(m.t):""}</span>${m.place?`<span>📍 ${esc(m.place)}</span>`:""}</div>
+    ${m.note?`<div class="rec"><span><b>Цель:</b> ${esc(m.note)}</span></div>`:""}
+    <div class="actions"><button class="btn primary small" data-meet-done="${m.id}" data-cid="${c.id}" type="button">✓ Состоялась</button>
+      <button class="btn small" data-open="${c.id}" type="button">Открыть клиента</button></div></article>`;
+}
+function calBtn(c,m){ return typeof exportMeetIcs==="function" ? `<button class="btn small" data-meet-ics="${m.id}" data-cid="${c.id}" type="button">📅 В календарь</button>` : ""; }
+function meetBox(c){
+  const list = meetsOf(c), today = todayIso();
+  const rows = list.map(m => {
+    const past = !m.done && diffDays(m.d, today) < 0;
+    return `<div class="mrow ${m.done?"done":""}"><div><b>${esc(fmtW(m.d))}${m.t?" в "+esc(m.t):""}</b>${m.done?` <span class="pill none">состоялась</span>`:past?` <span class="pill over">прошла, отметьте</span>`:""}</div>
+      ${m.place?`<div class="muted">📍 ${esc(m.place)}</div>`:""}${m.note?`<div>${esc(m.note)}</div>`:""}
+      <div class="actions">${m.done?"":`<button class="btn small" data-meet-done="${m.id}" data-cid="${c.id}" type="button">✓ Состоялась</button>${calBtn(c,m)}`}
+        <button class="btn ghost small" data-meet-del="${m.id}" data-cid="${c.id}" type="button" style="color:var(--red)">Удалить</button></div></div>`;
+  }).join("");
+  return `<div class="box"><h4>Встречи (${list.length})</h4>
+    ${rows || `<div class="muted">Встреч пока нет. Назначьте первую ниже.</div>`}
+    <form id="meetForm" style="display:grid;gap:8px;margin-top:4px">
+      <div class="actions"><span class="lbl">Дата:</span>
+        <button class="btn small" type="button" data-msetdate="${addDays(null,1)}">Завтра</button>
+        <button class="btn small" type="button" data-msetdate="${addDays(null,3)}">+3 дня</button>
+        <button class="btn small" type="button" data-msetdate="${addDays(null,7)}">+неделя</button></div>
+      <div class="grid2"><label class="f">Дата встречи<input type="date" id="m_date" required></label>
+        <label class="f">Время<input type="time" id="m_time"></label></div>
+      <label class="f">Место / формат<input type="text" id="m_place" placeholder="Офис клиента, Zoom, выставка"></label>
+      <label class="f">Цель встречи<textarea id="m_note" placeholder="Что хотим решить на встрече"></textarea></label>
+      <button class="btn primary" type="submit">Назначить встречу</button></form></div>`;
+}
+
+function taskCard(c){
+  const s = callState(c), lt = lastTouch(c), rec = recFor(c);
+  return `<article class="card ${s.k==="over"?"over":s.k==="today"?"today":""}">
+    <div class="row1"><span class="pill ${s.k}">${esc(s.txt)}</span>
+      <button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>
+      <span class="temp ${TEMPS[c.temp]?.c||""}">${esc(TEMPS[c.temp]?.l||"")}</span></div>
+    <div class="meta">${c.phone?`<span>📞 ${esc(c.phone)}</span>`:""}${c.fio?`<span>${esc(c.fio)}</span>`:""}${c.region?`<span>${esc(c.region)}</span>`:""}</div>
+    ${lt?`<div class="last"><small>Было${lt.d?" "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+    ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
+    ${rec?`<div class="rec"><span>${esc(rec)}</span></div>`:""}
+    <div class="actions"><button class="btn primary small" data-open="${c.id}" data-focus="1" type="button">✓ Записать касание</button>
+      <span class="lbl">Перенести:</span>
+      <button class="btn small" data-move="${c.id}" data-d="1" type="button">+1 день</button>
+      <button class="btn small" data-move="${c.id}" data-d="3" type="button">+3</button>
+      <button class="btn small" data-move="${c.id}" data-d="7" type="button">+неделя</button>${meetBtn(c)}</div>
+  </article>`;
+}
+function renderToday(over, today, week){
+  over.sort(byNext); today.sort(byNext); week.sort(byNext);
+  const noDate = clients.filter(c => ACTIVE.includes(c.temp) && !c.next);
+  const warn = upcomingMeets(3), soon = upcomingMeets(30);
+  let h = "";
+  if(warn.length) h += `<div class="banner"><b>🤝 Скоро встреча</b>${warn.map(x => `<span>${esc(x.c.name)} — ${esc(dayWord(x.dd))}${x.m.t?", в "+esc(x.m.t):""}</span>`).join("")}</div>`;
+  h += `<h2 class="sec">🤝 Встречи <span class="n">${soon.length}</span></h2>` + (soon.length ? `<div class="list">${soon.map(meetCard).join("")}</div>` : `<div class="empty">Встреч на ближайший месяц нет. Откройте клиента и назначьте встречу.</div>`);
+  h += `<h2 class="sec">🔴 Просрочено <span class="n">${over.length}</span></h2>` + (over.length ? `<div class="list">${over.map(taskCard).join("")}</div>` : `<div class="empty">Просроченных звонков нет.</div>`);
+  h += `<h2 class="sec">🟡 Сегодня <span class="n">${today.length}</span></h2>` + (today.length ? `<div class="list">${today.map(taskCard).join("")}</div>` : `<div class="empty">На сегодня звонков не назначено.</div>`);
+  h += `<h2 class="sec">📅 Ближайшие 7 дней <span class="n">${week.length}</span></h2>` + (week.length ? `<div class="list">${week.map(taskCard).join("")}</div>` : `<div class="empty">На неделю вперёд пусто.</div>`);
+  if(noDate.length) h += `<h2 class="sec">Без даты созвона <span class="n">${noDate.length}</span></h2><div class="list">${noDate.map(taskCard).join("")}</div>`;
+  return h;
+}
+function mini(c){
+  const s = callState(c);
+  return `<button class="mini ${s.k==="over"?"over":s.k==="today"?"today":""}" data-open="${c.id}" type="button">
+    <strong>${esc(c.name)}</strong><span><span class="pill ${s.k}">${esc(s.txt||"")}</span></span>
+    <span class="muted" style="font-size:12px">${esc((lastTouch(c)?.t||"").slice(0,90))}</span></button>`;
+}
+function renderBoard(){
+  return `<p class="muted" style="margin:0 0 10px">Откройте клиента и нажмите другой статус — он переедет в нужную колонку.</p><div class="board">` +
+    ACTIVE.map(t => { const l = clients.filter(c => c.temp===t).sort(byNext);
+      return `<section class="col"><h3><span class="${TEMPS[t].c}">${TEMPS[t].l}</span><span class="muted">${l.length}</span></h3>${l.map(mini).join("") || `<div class="muted" style="padding:8px">Пусто</div>`}</section>`; }).join("") + `</div>`;
+}
+function renderAll(){
+  if(!view.querySelector("#q")){
+    view.innerHTML = `<div class="filters"><input id="q" type="search" placeholder="Поиск: компания, ФИО, город, телефон" aria-label="Поиск">
+      <button class="chip" data-ft="work" type="button">В работе</button><button class="chip" data-ft="" type="button">Все</button>${Object.entries(TEMPS).map(([k,v]) => `<button class="chip" data-ft="${k}" type="button">${v.l}</button>`).join("")}</div><div class="list" id="allList"></div>`;
+    view.querySelector("#q").value = query;
+  }
+  view.querySelectorAll("[data-ft]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ft===filterTemp)));
+  const q = query.trim().toLowerCase();
+  const l = clients.filter(c => (!filterTemp || (filterTemp==="work" ? !["branch","refused"].includes(c.temp) : c.temp===filterTemp)) && (!q || [c.name,c.fio,c.region,c.phone,c.email,c.inn].join(" ").toLowerCase().includes(q))).sort(byNext);
+  view.querySelector("#allList").innerHTML = l.length ? l.map(c => ACTIVE.includes(c.temp) ? taskCard(c) : archCard(c)).join("") : `<div class="empty">Никого не нашлось.</div>`;
+}
+function archCard(c){
+  const lt = lastTouch(c);
+  return `<article class="card"><div class="row1"><button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>
+    <span class="temp ${TEMPS[c.temp]?.c}">${esc(TEMPS[c.temp]?.l)}</span></div>
+    <div class="meta">${c.phone?`<span>📞 ${esc(c.phone)}</span>`:""}${c.fio?`<span>${esc(c.fio)}</span>`:""}${c.region?`<span>${esc(c.region)}</span>`:""}</div>
+    ${lt?`<div class="last"><small>Последнее${lt.d?" "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+    <div class="actions">${meetBtn(c)}<span class="lbl">Вернуть в работу:</span>
+      <button class="btn small t-hot" data-temp="hot" data-id="${c.id}" type="button">🔥</button>
+      <button class="btn small t-warm" data-temp="warm" data-id="${c.id}" type="button">🌤 Тёплый</button>
+      <button class="btn small t-cold" data-temp="cold" data-id="${c.id}" type="button">❄ Холодный</button></div></article>`;
+}
+function renderArch(){
+  const br = clients.filter(c => c.temp==="branch").sort((a,b)=>a.name.localeCompare(b.name,"ru"));
+  const rf = clients.filter(c => c.temp==="refused").sort((a,b)=>a.name.localeCompare(b.name,"ru"));
+  return `<h2 class="sec">↪ Переданы на филиал <span class="n">${br.length}</span></h2>${br.length?`<div class="list">${br.map(archCard).join("")}</div>`:`<div class="empty">Пусто.</div>`}
+    <h2 class="sec">⛔ Отказы <span class="n">${rf.length}</span></h2>${rf.length?`<div class="list">${rf.map(archCard).join("")}</div>`:`<div class="empty">Отказов нет.</div>`}`;
+}
+
+// ---------- карточка клиента
+let draft = {}, confirmDel = false, editing = false;
+function renderPanel(focus){
+  const c = openId==="new" ? null : clients.find(x => x.id===openId);
+  if(openId!=="new" && !c){ closePanel(); return; }
+  overlay.hidden = false;
+  if(!c){
+    overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="Новый клиент">
+      <div class="head"><h2>Новый клиент</h2><button class="btn ghost" data-close type="button">✕</button></div>
+      <form class="box" id="newForm">${fields({temp:"warm"})}<button class="btn primary" type="submit">Добавить клиента</button></form></aside>`;
+    overlay.querySelector("#f_name").focus(); return;
+  }
+  const s = callState(c), lt = lastTouch(c), touches = (c.touches||[]).filter(t=>t&&t.t);
+  const nextDraft = draft[c.id] || {};
+  overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="${esc(c.name)}">
+    <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div></div>
+      <button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
+    <div class="box"><h4>Статус клиента</h4><div class="temps">${Object.entries(TEMPS).map(([k,v]) => `<button class="${v.c}" data-temp="${k}" data-id="${c.id}" aria-pressed="${c.temp===k}" type="button">${v.l}</button>`).join("")}</div></div>
+    <div class="box"><h4>Созвон</h4>
+      <div class="row1" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${s.k!=="arch"?`<span class="pill ${s.k}">${esc(s.txt)}</span>`:""}<span>${c.next?fmtW(c.next):"дата не назначена"}</span></div>
+      ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+      ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
+      ${recFor(c)?`<div class="rec"><span><b>Рекомендация:</b> ${esc(recFor(c))}</span></div>`:""}
+      <div class="actions"><span class="lbl">Перенести созвон:</span>${moveBtns(c.id)}</div></div>
+    ${meetBox(c)}
+    <form class="box" id="touchForm"><h4>Записать касание</h4>
+      <div class="grid2"><label class="f">Дата касания<input type="date" id="t_date" value="${esc(nextDraft.d||todayIso())}"></label>
+        <label class="f">Следующий созвон<input type="date" id="t_next" value="${esc(nextDraft.n||"")}"></label></div>
+      <div class="actions"><span class="lbl">Быстро:</span>
+        <button class="btn small" type="button" data-setnext="${addDays(null,1)}">Завтра</button>
+        <button class="btn small" type="button" data-setnext="${addDays(null,2)}">+2 дня</button>
+        <button class="btn small" type="button" data-setnext="${addDays(null,3)}">+3 дня</button>
+        <button class="btn small" type="button" data-setnext="${nextMonday()}">Пн</button>
+        <button class="btn small" type="button" data-setnext="${addDays(null,7)}">+неделя</button>
+        <button class="btn small" type="button" data-setnext="${addDays(null,14)}">+2 недели</button></div>
+      <label class="f">Итог касания — что было<textarea id="t_text" placeholder="Например: изучают договор, юристы ответят в пятницу">${esc(nextDraft.t||"")}</textarea></label>
+      <label class="f">Следующий шаг<input type="text" id="t_plan" value="${esc(nextDraft.p||"")}" placeholder="${esc(recFor(c, nextDraft.t||"") || "Что сделать")}"></label>
+      <button class="btn primary" type="submit">Сохранить касание</button></form>
+    <div class="box"><h4>Контакты</h4><dl class="kv">
+      ${kvRow("ФИО", c.fio)}${kvRow("Должность", c.position)}${kvRow("Телефон", c.phone, true)}${kvRow("Email", c.email, true)}${kvRow("ИНН", c.inn, true)}${kvRow("Выручка 2025", c.revenue!=null && c.revenue!==""?c.revenue+" млн ₽":"")}${kvRow("Канал", c.channel)}</dl>
+      <details ${editing?"open":""} id="editDet"><summary>Изменить данные</summary><form id="editForm" style="display:grid;gap:8px;margin-top:8px">${fields(c)}<button class="btn primary" type="submit">Сохранить данные</button></form></details></div>
+    <div class="box"><h4>История касаний (${touches.length})</h4>
+      ${c.intro?`<div class="muted" style="font-size:14px"><b>Знакомство:</b> ${esc(c.intro)}</div>`:""}
+      <div class="hist">${touches.slice().reverse().map((t,i) => `<div class="it ${i===0?"lastone":""}"><time>${t.d?fmt(t.d):"—"}</time><div>${esc(t.t)}</div></div>`).join("") || `<div class="muted">Касаний ещё нет.</div>`}</div></div>
+    <div class="box">${confirmDel?`<div class="confirm"><span>Удалить «${esc(c.name)}» вместе с историей?</span><button class="btn small" data-del="${c.id}" style="background:var(--red);color:var(--surface);border-color:var(--red)" type="button">Да, удалить</button><button class="btn small" data-nodel type="button">Отмена</button></div>`
+      :`<button class="btn ghost small" data-askdel type="button" style="color:var(--red)">Удалить клиента</button>`}</div>
+  </aside>`;
+  if(focus==="meet") overlay.querySelector("#meetForm")?.scrollIntoView({block:"start"});
+  else if(focus) overlay.querySelector("#t_text").focus();
+}
+function moveBtns(id){ return [["Завтра",1],["+3",3],["+неделя",7]].map(([l,d]) => `<button class="btn small" data-move="${id}" data-d="${d}" type="button">${l}</button>`).join(""); }
+function kvRow(k,v,copy){ if(v==null||v==="") return ""; return `<dt>${k}</dt><dd>${esc(v)}</dd><dd>${copy?`<button class="btn small" data-copy="${esc(v)}" type="button">Копировать</button>`:""}</dd>`; }
+function fields(c){
+  const f = (id,l,v,t="text") => `<label class="f">${l}<input id="f_${id}" type="${t}" value="${esc(v??"")}"></label>`;
+  return `${f("name","Компания *",c.name)}<div class="grid2">${f("region","Регион",c.region)}${f("inn","ИНН",c.inn)}</div>
+    <div class="grid2">${f("fio","ФИО",c.fio)}${f("position","Должность",c.position)}</div>
+    <div class="grid2">${f("phone","Телефон",c.phone,"tel")}${f("email","Email",c.email,"email")}</div>
+    <div class="grid2">${f("revenue","Выручка 2025, млн ₽",c.revenue)}${f("channel","Канал связи",c.channel)}</div>
+    ${f("status","Статус (как в вашей таблице)",c.status)}
+    <label class="f">Знакомство / намерения<textarea id="f_intro">${esc(c.intro||"")}</textarea></label>
+    ${openId==="new"?`<label class="f">Статус клиента<select id="f_temp">${Object.entries(TEMPS).map(([k,v])=>`<option value="${k}" ${k==="warm"?"selected":""}>${v.l}</option>`).join("")}</select></label>
+    <label class="f">Первый созвон<input type="date" id="f_next" value="${addDays(null,1)}"></label>`:""}`;
+}
+function readFields(){
+  const g = id => (overlay.querySelector("#f_"+id)?.value ?? "").trim();
+  const rv = g("revenue").replace(",", "."), out = {name:g("name"),region:g("region"),inn:g("inn"),fio:g("fio"),position:g("position"),phone:g("phone"),email:g("email"),channel:g("channel"),status:g("status"),intro:g("intro")};
+  out.revenue = rv==="" ? "" : (isNaN(Number(rv)) ? rv : Number(rv));
+  return out;
+}
+function openPanel(id, focus){ openId = id; confirmDel = false; editing = false; renderPanel(focus); }
+function closePanel(){ openId = null; overlay.hidden = true; overlay.innerHTML = ""; }
+
+// ---------- события
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button,[data-close]"); if(!t) return;
+  if(t.dataset.tab){ tab = t.dataset.tab; try{localStorage.setItem("vcrm-tab",tab)}catch(_){} view.innerHTML=""; render(); return; }
+  if(t.dataset.go){ tab = t.dataset.go; if(t.dataset.gft!==undefined) filterTemp = t.dataset.gft; try{localStorage.setItem("vcrm-tab",tab)}catch(_){} view.innerHTML=""; render(); return; }
+  if(t.hasAttribute("data-close")){ closePanel(); return; }
+  if(t.dataset.meetOpen){ openPanel(t.dataset.meetOpen, "meet"); return; }
+  if(t.dataset.msetdate){ overlay.querySelector("#m_date").value = t.dataset.msetdate; return; }
+  if(t.dataset.meetDone || t.dataset.meetDel){ const c = clients.find(x=>x.id===t.dataset.cid); if(!c) return;
+    const list = c.meets||[];
+    const next = t.dataset.meetDone ? list.map(m => m.id===t.dataset.meetDone ? {...m, done:true} : m) : list.filter(m => m.id!==t.dataset.meetDel);
+    if(await save(c.id,{meets:next})) toast(t.dataset.meetDone ? "Отмечено: встреча состоялась" : "Встреча удалена"); return; }
+  if(t.dataset.meetIcs){ const c = clients.find(x=>x.id===t.dataset.cid), m = c && (c.meets||[]).find(x=>x.id===t.dataset.meetIcs);
+    if(c && m && typeof exportMeetIcs==="function") exportMeetIcs(c,m); return; }
+  if(t.dataset.open){ openPanel(t.dataset.open, !!t.dataset.focus); return; }
+  if(t.id==="addBtn"){ openPanel("new"); return; }
+  if(t.dataset.ft!==undefined && t.classList.contains("chip")){ filterTemp = t.dataset.ft; renderAll(); return; }
+  if(t.dataset.temp){ const c = clients.find(x=>x.id===t.dataset.id); if(!c||c.temp===t.dataset.temp) return;
+    if(await save(c.id,{temp:t.dataset.temp})) toast(`${c.name}: ${TEMPS[t.dataset.temp].l}`); return; }
+  if(t.dataset.move){ const c = clients.find(x=>x.id===t.dataset.move); const base = c.next && c.next>todayIso() ? c.next : todayIso();
+    const n = addDays(base==="" ? null : base, +t.dataset.d); if(await save(c.id,{next:n})) toast(`Созвон перенесён на ${fmtW(n)}`); return; }
+  if(t.dataset.setnext){ overlay.querySelector("#t_next").value = t.dataset.setnext; keepDraft(); return; }
+  if(t.dataset.copy){ try{ await navigator.clipboard.writeText(t.dataset.copy); toast("Скопировано"); }catch(_){ toast(t.dataset.copy); } return; }
+  if(t.hasAttribute("data-askdel")){ confirmDel = true; renderPanel(); return; }
+  if(t.hasAttribute("data-nodel")){ confirmDel = false; renderPanel(); return; }
+  if(t.dataset.del){ try{ await db.collection("clients").doc(t.dataset.del).delete(); toast("Клиент удалён"); closePanel(); }catch(_){ toast("Не удалилось, попробуйте ещё раз"); } return; }
+});
+function keepDraft(){ if(!openId||openId==="new") return; const g = id => overlay.querySelector(id)?.value ?? "";
+  draft[openId] = {d:g("#t_date"), n:g("#t_next"), t:g("#t_text"), p:g("#t_plan")};
+  const pl = overlay.querySelector("#t_plan"); const c = clients.find(x=>x.id===openId); if(pl&&c) pl.placeholder = recFor(c, g("#t_text")) || "Что сделать"; }
+document.addEventListener("input", e => {
+  if(e.target.id==="q"){ query = e.target.value; renderAll(); return; }
+  if(e.target.closest("#touchForm")) keepDraft();
+  if(e.target.closest("#editForm")) editing = true;
+});
+document.addEventListener("keydown", e => { if(e.key==="Escape" && openId) closePanel(); });
+document.addEventListener("submit", async e => {
+  e.preventDefault();
+  if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
+    const v = id => overlay.querySelector(id).value.trim();
+    const d = v("#m_date"); if(!d){ toast("Укажите дату встречи"); overlay.querySelector("#m_date").focus(); return; }
+    const m = {id:"m"+Date.now().toString(36)+Math.random().toString(36).slice(2,5), d, t:v("#m_time"), place:v("#m_place"), note:v("#m_note"), done:false};
+    if(await save(c.id,{meets:[...(c.meets||[]), m]})){ toast(`Встреча назначена: ${fmtW(d)}`); renderPanel(); }
+    return; }
+  if(e.target.id==="touchForm"){
+    const c = clients.find(x=>x.id===openId); if(!c) return;
+    const g = id => overlay.querySelector(id).value.trim();
+    const text = g("#t_text"), d = g("#t_date") || todayIso(), n = g("#t_next"), p = g("#t_plan");
+    if(!text){ toast("Напишите, что было"); overlay.querySelector("#t_text").focus(); return; }
+    if(!n){ toast("Поставьте дату следующего созвона"); overlay.querySelector("#t_next").focus(); return; }
+    const touches = [...(c.touches||[]), {d, t:text}];
+    if(await save(c.id,{touches, next:n, plan:p})){ delete draft[c.id]; toast(`Сохранено. Следующий созвон — ${fmtW(n)}`); renderPanel(); }
+  }
+  if(e.target.id==="editForm"){ const f = readFields(); if(!f.name){ toast("Укажите компанию"); return; }
+    if(await save(openId, f)){ editing = false; toast("Данные сохранены"); } }
+  if(e.target.id==="newForm"){ const f = readFields(); if(!f.name){ toast("Укажите компанию"); return; }
+    f.temp = overlay.querySelector("#f_temp").value; f.next = overlay.querySelector("#f_next").value; f.plan = "";
+    const id = await create(f); if(id){ toast("Клиент добавлен"); openPanel(id); } }
+});
+
+// ---------- подключение к базе
+render();
+(async () => {
+  db = await window.claude?.use?.("db") ?? null;
+  if(!db){ loaded = true; view.innerHTML = `<div class="empty">База клиентов недоступна в этом просмотре. Откройте приложение по ссылке в Claude, войдя в свой аккаунт.</div>`; return; }
+  db.collection("clients").onSnapshot(snap => {
+    clients = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    loaded = true;
+    const active = document.activeElement;
+    const typing = active && overlay.contains(active) && /INPUT|TEXTAREA|SELECT/.test(active.tagName);
+    if(typing){ const keep = openId; const savedOpen = openId; openId = null; render(); openId = savedOpen; }
+    else render();
+    if(!clients.length) view.innerHTML = `<div class="empty">Клиентов пока нет. Нажмите «+ Новый клиент», чтобы добавить первого.</div>`;
+  }, err => { view.innerHTML = `<div class="empty">Не удалось загрузить клиентов. Обновите страницу.</div>`; });
+  if(!document.querySelector('#tabs [data-tab="otasks"]')){
+    const b = document.createElement("button"); b.setAttribute("role", "tab"); b.dataset.tab = "otasks"; b.setAttribute("aria-selected", String(tab === "otasks")); b.textContent = "Задачи";
+    document.querySelector('#tabs [data-tab="today"]').after(b);
+  }
+  db.collection("tasks").onSnapshot(snap => {
+    onlineTasks = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    if(tab === "otasks" && !openId) render();
+  }, () => {});
+})();
+setInterval(() => { if(loaded && !openId) render(); }, 60000);
+})();
+</script>
