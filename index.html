@@ -153,6 +153,17 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .gpill.view{background:var(--steel-soft);color:var(--steel)}
 .guest #addBtn,.guest #addBtn2,.guest [data-move],.guest [data-focus],.guest [data-meet-open]:not(.meet-on),.guest [data-meet-done],.guest [data-meet-del],
 .guest #touchForm,.guest #meetForm,.guest #editDet,.guest .box:has(> [data-askdel]),.guest .actions .lbl,.guest .actions [data-temp]{display:none!important}
+.guest #tabs [data-tab="tasks"]{display:none!important}
+.tday{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;font-size:16px}
+.trow{display:flex;align-items:flex-start;gap:10px}
+.tbody{flex:1;min-width:0;display:grid;gap:2px}
+.tact{display:flex;gap:6px;align-items:center;flex:0 0 auto}
+.tcheck{width:30px;height:30px;flex:0 0 auto;border-radius:8px;border:2px solid var(--line);background:var(--surface);font-weight:800;font-size:16px;color:var(--surface);padding:0}
+.tcheck[aria-pressed="true"]{background:var(--green);border-color:var(--green)}
+.ttext{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
+.task.done .ttext{text-decoration:line-through;color:var(--muted)}
+.tbadge{display:inline-block;margin-left:4px;font-size:12px;font-weight:700;color:var(--red)}
+nav.tabs button[aria-selected="true"] .tbadge{color:var(--surface)}
 .guest .temps button{pointer-events:none}.guest .temps button[aria-pressed="false"]{display:none}
 @media (max-width:640px){
   .board{grid-template-columns:repeat(4,82%)}
@@ -172,6 +183,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
   <div id="banner" hidden></div>
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-tab="today" aria-selected="true">Сегодня</button>
+    <button role="tab" data-tab="tasks" aria-selected="false">Задачи<span id="tasksBadge" class="tbadge"></span></button>
     <button role="tab" data-tab="board" aria-selected="false">Воронка</button>
     <button role="tab" data-tab="all" aria-selected="false">Все клиенты</button>
     <button role="tab" data-tab="arch" aria-selected="false">Филиал и отказы</button>
@@ -341,7 +353,7 @@ async function uploadNow(manual){
       try { const sh = await fetchShared(); if(sh && sh.updated !== getMeta().sharedSeen){ const res = mergeShared(sh); if(res.changed){ saveLocalOnly(); render(); } } }
       catch(e){ if(e && e.message === "token") throw e; }
       stampUp = new Date().toISOString();
-      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guests: getGuests(), gh: tok});
+      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guests: getGuests(), tasks: getTasks(), gh: tok});
       const box = await sealBox(new TextEncoder().encode(body), pw);
       try { await putFile(tok, UPATH, box, "Данные из приложения [skip ci]"); break; }
       catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
@@ -390,6 +402,13 @@ function mergeShared(sh){
     else if((l.updated || "") > (r.updated || "")) localAhead = true; }
   for(const id of lgm.keys()) if(!rgl.some(r => r.id === id)) localAhead = true;
   if(gch){ setGuests([...lgm.values()]); guestSeen = {}; changed++; }
+  const rt = Array.isArray(sh.tasks) ? sh.tasks : [];
+  const ltm = new Map(getTasks().map(t => [t.id, t])); let tch = false;
+  for(const r of rt){ if(!r || !r.id) continue; const l = ltm.get(r.id);
+    if(!l || (r.updated || "") > (l.updated || "")){ ltm.set(r.id, r); tch = true; }
+    else if((l.updated || "") > (r.updated || "")) localAhead = true; }
+  for(const id of ltm.keys()) if(!rt.some(r => r && r.id === id)) localAhead = true;
+  if(tch){ setTasks([...ltm.values()]); changed++; }
   if(!getGh() && sh.gh){ setGh(sh.gh); setMeta({upErr: "", ghFromDevice: true}); }
   return {changed, localAhead};
 }
@@ -412,6 +431,58 @@ async function syncShared(manual){
 function startShare(){
   if(shareTimer || isGuest()) return;
   shareTimer = setInterval(() => { if(!document.hidden && !isGuest() && getPw()) syncShared(); }, getGh() ? 60000 : 180000);
+}
+// ---------- задачи на день (видит только владелец; в гостевые копии не попадают)
+const TASKKEY = "wayteko.tasks.v1";
+let taskDay = todayIso();
+function getTasks(){ try { const v = JSON.parse(localStorage.getItem(TASKKEY) || "[]"); return Array.isArray(v) ? v : []; } catch(e){ return []; } }
+function setTasks(l){ try { localStorage.setItem(TASKKEY, JSON.stringify(l)); } catch(e){} }
+function saveTasks(l){
+  if(isGuest()){ toast(GUEST_MSG); return false; }
+  setTasks(l); setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); return true;
+}
+const liveTasks = () => getTasks().filter(t => t && !t.del);
+function openTasksCount(){ const d = todayIso(); return liveTasks().filter(t => !t.done && t.d <= d).length; }
+function renderTasksBadge(){
+  const el = document.getElementById("tasksBadge"); if(!el) return;
+  const n = isGuest() ? 0 : openTasksCount(); el.textContent = n ? " " + n : "";
+}
+function taskRow(t, old){
+  const c = t.cid ? clients.find(x => x.id === t.cid) : null;
+  const who = c ? `<button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>` : (t.cname ? `<b>${esc(t.cname)}</b>` : "");
+  return `<article class="card task ${t.done ? "done" : ""}"><div class="trow">
+    <button class="tcheck" data-tdone="${esc(t.id)}" aria-pressed="${!!t.done}" type="button" aria-label="${t.done ? "Снять отметку" : "Отметить выполненной"}">${t.done ? "✓" : ""}</button>
+    <div class="tbody">${who}<div class="ttext">${esc(t.text)}</div>${old ? `<div class="muted" style="font-size:12px">было на ${esc(fmtW(t.d))}</div>` : ""}</div>
+    <div class="tact">${old ? `<button class="btn small" data-tmove="${esc(t.id)}" type="button">На сегодня</button>` : ""}
+      <button class="btn ghost small" data-tdel="${esc(t.id)}" type="button" aria-label="Удалить задачу">✕</button></div></div></article>`;
+}
+function renderTasks(force){
+  if(isGuest()){ tab = "today"; render(); return; }
+  const ae = document.activeElement;
+  if(!force && ae && view.contains(ae) && /INPUT|TEXTAREA/.test(ae.tagName) && view.querySelector("#taskForm")) return;
+  const today = todayIso(), all = liveTasks();
+  const day = all.filter(t => t.d === taskDay).sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || (a.created || "").localeCompare(b.created || ""));
+  const over = taskDay === today ? all.filter(t => !t.done && t.d < today).sort((a, b) => a.d.localeCompare(b.d)) : [];
+  const opts = clients.filter(c => c.temp !== "refused").sort((a, b) => a.name.localeCompare(b.name, "ru")).map(c => `<option value="${esc(c.name)}"></option>`).join("");
+  const keep = view.querySelector("#tk_client")?.value || "", keepT = view.querySelector("#tk_text")?.value || "";
+  view.innerHTML = `<div class="tday"><button class="btn small" data-tday="-1" type="button" aria-label="Предыдущий день">‹</button>
+      <b>${taskDay === today ? "Сегодня, " : taskDay === addDays(null, 1) ? "Завтра, " : ""}${esc(fmtW(taskDay))}</b>
+      <button class="btn small" data-tday="1" type="button" aria-label="Следующий день">›</button>
+      ${taskDay !== today ? `<button class="btn small" data-tday="0" type="button">Сегодня</button>` : ""}</div>
+    <form id="taskForm" class="box"><h4>Новая задача${taskDay !== today ? " на " + esc(fmt(taskDay)) : ""}</h4>
+      <label class="f">Клиент (необязательно)<input id="tk_client" list="tk_clients" placeholder="Начните вводить название" autocomplete="off" value="${esc(keep)}"></label>
+      <datalist id="tk_clients">${opts}</datalist>
+      <label class="f">Задача<textarea id="tk_text" placeholder="Например: отправить КП, согласовать встречу, проверить оплату" required>${esc(keepT)}</textarea></label>
+      <button class="btn primary" type="submit">Добавить задачу</button></form>
+    <h2 class="sec">📋 Задачи на ${taskDay === today ? "сегодня" : esc(fmt(taskDay))} <span class="n">${day.filter(t => !t.done).length} из ${day.length} осталось</span></h2>
+    ${day.length ? `<div class="list">${day.map(t => taskRow(t, false)).join("")}</div>` : `<div class="empty">Задач на этот день нет.</div>`}
+    ${over.length ? `<h2 class="sec">⏰ Не выполнено раньше <span class="n">${over.length}</span></h2><div class="list">${over.map(t => taskRow(t, true)).join("")}</div>` : ""}
+    <p class="note" style="margin-top:14px">🔒 Задачи видите только вы — на всех своих устройствах. Гостям они не показываются и в их копии не попадают.</p>`;
+}
+function taskUpdate(id, fn){
+  const l = getTasks(), t = l.find(x => x.id === id); if(!t) return;
+  fn(t); t.updated = new Date().toISOString();
+  if(saveTasks(l)){ renderTasks(true); renderTasksBadge(); }
 }
 // ---------- гостевой доступ (только просмотр, до 4 гостей) и «в сети»
 const ROLEKEY = "wayteko.role.v1", GUESTKEY = "wayteko.guests.v2", OLDGUESTKEY = "wayteko.guest.v1", GPATH = "data/app.guest.enc.json", NTFY = "https://ntfy.sh/", MAXG = 4;
@@ -479,7 +550,7 @@ async function guestSync(pw, manual, login){
   let snap;
   try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
   catch(e){ if(!login) guestRevoked(); return false; }
-  setPw(pw); setRole("guest"); syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
+  setPw(pw); setRole("guest"); setTasks([]); syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
   clients = normalizeImport(snap.clients || []); saveLocalOnly();
   setMeta({lastSync: snap.updated, guestName: snap.guestName || ""});
   if(login) toast("Гостевой доступ: только просмотр");
@@ -734,7 +805,7 @@ function welcomeHtml(){
 
 // ---------- рендер
 function render(){
-  { const ls = getMeta().lastSync; $("#todayLbl").textContent = "Сегодня " + fmtW(todayIso()) + (ls ? " · база от " + fmtStamp(ls) : ""); renderGuestPill(); }
+  { const ls = getMeta().lastSync; $("#todayLbl").textContent = "Сегодня " + fmtW(todayIso()) + (ls ? " · база от " + fmtStamp(ls) : ""); renderGuestPill(); renderTasksBadge(); }
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab===tab)));
   const act = clients.filter(c => !["branch","refused"].includes(c.temp));
   const over = act.filter(c => callState(c).k==="over"), today = act.filter(c => callState(c).k==="today");
@@ -755,6 +826,7 @@ function render(){
   if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }
   else if(!clients.length) view.innerHTML = welcomeHtml();
   else if(tab==="today") view.innerHTML = renderToday(over, today, week);
+  else if(tab==="tasks") renderTasks();
   else if(tab==="board") view.innerHTML = renderBoard();
   else if(tab==="all") renderAll();
   else view.innerHTML = renderArch();
@@ -974,6 +1046,10 @@ document.addEventListener("click", async e => {
   if(t.dataset.act==="csv"){ exportCsv(); return; }
   if(t.dataset.act==="xlsx"){ downloadXlsx(); return; }
   if(t.dataset.act==="upload"){ await uploadNow(true); return; }
+  if(t.dataset.tday !== undefined){ const d = +t.dataset.tday; taskDay = d === 0 ? todayIso() : addDays(taskDay, d); renderTasks(true); return; }
+  if(t.dataset.tdone){ taskUpdate(t.dataset.tdone, x => { x.done = !x.done; }); return; }
+  if(t.dataset.tmove){ taskUpdate(t.dataset.tmove, x => { x.d = todayIso(); }); toast("Перенесено на сегодня"); return; }
+  if(t.dataset.tdel){ taskUpdate(t.dataset.tdel, x => { x.del = true; }); toast("Задача удалена"); return; }
   if(t.dataset.act==="devsync"){ await syncShared(true); return; }
   if(t.dataset.act==="ghoff"){ setGh(""); setMeta({upErr:""}); renderPanel(); return; }
   if(t.dataset.act==="sync"){ await syncNow(null, true); return; }
@@ -1029,6 +1105,13 @@ document.addEventListener("submit", async e => {
     catch(_){ toast("Токен не подходит: нужен доступ к репозиторию wayteko на запись"); return; }
     setGh(tok); setMeta({upErr:"", upRev: -1}); renderPanel(); await uploadNow(true); return; }
   if(e.target.id==="guestForm"){ await guestAction("add"); return; }
+  if(e.target.id==="taskForm"){
+    const text = (view.querySelector("#tk_text")?.value || "").trim(), cn = (view.querySelector("#tk_client")?.value || "").trim();
+    if(!text){ toast("Напишите задачу"); return; }
+    const c = cn ? clients.find(x => x.name.trim().toLowerCase() === cn.toLowerCase()) : null, now = new Date().toISOString();
+    const l = getTasks(); l.push({id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), d: taskDay, cid: c ? c.id : "", cname: c ? "" : cn, text, done: false, created: now, updated: now});
+    if(saveTasks(l)){ view.querySelector("#tk_text").value = ""; view.querySelector("#tk_client").value = ""; renderTasks(true); renderTasksBadge(); toast("Задача добавлена"); }
+    return; }
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
     const v = id => overlay.querySelector(id).value.trim();
