@@ -13,6 +13,8 @@ box = json.load(open(app_path))
 b = lambda s: base64.b64decode(s)
 key = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), b(box["salt"]), box["iter"], 32)
 app = json.loads(AESGCM(key).decrypt(b(box["iv"]), b(box["ct"]), None))
+# личные задачи пользователя никуда не переносятся и не читаются — убираем сразу
+for k in ("tasks", "gh", "guests", "guest"): app.pop(k, None)
 versions = json.load(open(ver_path))
 
 art = {}
