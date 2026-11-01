@@ -317,6 +317,7 @@ async function syncNow(pwTry, manual){
     setPw(pw); syncState.needPw = false; syncState.updated = snap.updated; syncState.status = "ok";
     const m = getMeta();
     if(m.lastSync !== snap.updated){
+      if(Array.isArray(snap.tasks) && snap.tasks.length && !isGuest()) mergeTaskList(snap.tasks);
       const before = clients, res = mergeSnapshot(normalizeImport(snap.clients || []));
       if(!persist()){ clients = before; render(); return; }
       setMeta({lastSync: snap.updated, lastSyncAt: new Date().toISOString()});
@@ -478,6 +479,13 @@ function renderTasks(force){
     ${day.length ? `<div class="list">${day.map(t => taskRow(t, false)).join("")}</div>` : `<div class="empty">Задач на этот день нет.</div>`}
     ${over.length ? `<h2 class="sec">⏰ Не выполнено раньше <span class="n">${over.length}</span></h2><div class="list">${over.map(t => taskRow(t, true)).join("")}</div>` : ""}
     <p class="note" style="margin-top:14px">🔒 Задачи видите только вы — на всех своих устройствах. Гостям они не показываются и в их копии не попадают.</p>`;
+}
+function mergeTaskList(list){
+  const m = new Map(getTasks().map(t => [t.id, t])); let n = 0;
+  for(const r of list){ if(!r || !r.id) continue; const l = m.get(r.id);
+    if(!l || (r.updated || "") > (l.updated || "")){ m.set(r.id, r); n++; } }
+  if(n){ saveTasks([...m.values()]); renderTasksBadge(); }
+  return n;
 }
 function taskUpdate(id, fn){
   const l = getTasks(), t = l.find(x => x.id === id); if(!t) return;
@@ -709,7 +717,7 @@ async function giveFile(name, mime, text){
 }
 const stamp = () => { const d = new Date(); return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()}`; };
 async function exportBackup(){
-  const data = {app:"WAYTEKO", version:1, exported:new Date().toISOString(), clients};
+  const data = {app:"WAYTEKO", version:1, exported:new Date().toISOString(), clients, tasks: getTasks()};
   if(await giveFile(`WAYTEKO_копия_${stamp()}.json`, "application/json", JSON.stringify(data, null, 1))){ setMeta({lastBackup: todayIso()}); toast("Резервная копия сохранена"); render(); }
 }
 const TEMP_TXT = {hot:"Горячий", warm:"Тёплый", cold:"Холодный", dealer:"Дилер", branch:"Филиал", refused:"Отказ"};
@@ -754,7 +762,7 @@ async function exportMeetIcs(c, m){
     "END:VEVENT","END:VCALENDAR"].join("\r\n");
   if(await giveFile(`Встреча_${c.name.replace(/[^\wА-Яа-яЁё]+/g,"_").slice(0,40)}_${m.d}.ics`, "text/calendar", ics)) toast("Откройте файл, чтобы добавить в календарь");
 }
-let pendingImport = null;
+let pendingImport = null, pendingTasks = null;
 function normalizeImport(list){
   return list.filter(x => x && typeof x==="object" && x.name).map(x => ({...x, id: x.id || newId(), touches: Array.isArray(x.touches) ? x.touches.filter(t => t && t.t) : [], temp: TEMPS[x.temp] ? x.temp : "warm"}));
 }
@@ -767,7 +775,11 @@ function applyImport(mode){
     clients = [...clients, ...pendingImport.filter(c => !ids.has(c.id) && !names.has(c.name.trim().toLowerCase()))]; }
   if(!persist()){ clients = before; return; }
   const added = clients.length - (mode==="replace" ? 0 : before.length);
-  pendingImport = null; toast(mode==="replace" ? `Загружено клиентов: ${clients.length}` : `Добавлено новых: ${added}`); render();
+  let tAdded = 0;
+  if(Array.isArray(pendingTasks) && pendingTasks.length && !isGuest()) tAdded = mergeTaskList(pendingTasks);
+  pendingTasks = null;
+  if(tAdded) toast(`Задач восстановлено: ${tAdded}`);
+  pendingImport = null; if(!tAdded) toast(mode==="replace" ? `Загружено клиентов: ${clients.length}` : `Добавлено новых: ${added}`); render();
 }
 function renderDataPanel(){
   const m = getMeta(), last = m.lastBackup ? fmt(m.lastBackup) + " " + m.lastBackup.slice(0,4) : "ещё не сохранялась";
@@ -1090,7 +1102,7 @@ document.addEventListener("change", async e => {
     const data = JSON.parse(await f.text());
     const list = normalizeImport(Array.isArray(data) ? data : (data && data.clients) || []);
     if(!list.length) throw new Error("empty");
-    pendingImport = list;
+    pendingImport = list; pendingTasks = Array.isArray(data && data.tasks) ? data.tasks : null;
     if(!clients.length) applyImport("replace"); else { openId = "data"; renderPanel(); }
   } catch(_){ toast("Не удалось прочитать файл. Выберите резервную копию WAYTEKO (.json)"); }
   e.target.value = "";

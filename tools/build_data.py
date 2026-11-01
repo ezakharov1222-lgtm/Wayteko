@@ -24,11 +24,16 @@ for p in sorted(glob.glob(os.path.join(src, "*.json"))):
 if not clients: sys.exit("выгрузка пустая — ничего не публикую")
 now = dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).isoformat(timespec="seconds")
 os.makedirs(f"{root}/data", exist_ok=True)
-json.dump(box(json.dumps({"updated": now, "clients": clients}, ensure_ascii=False).encode()), open(f"{root}/data/clients.enc.json", "w"))
+# личные задачи владельца — в зашифрованную резервную копию (в Excel-файл не попадают)
+tasks = []
+for p in sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(src)), "tasks", "*.json"))):
+    t = json.load(open(p, encoding="utf-8")); t = t["data"] if isinstance(t.get("data"), dict) else t
+    t = dict(t); t["id"] = os.path.basename(p)[:-5]; tasks.append(t)
+json.dump(box(json.dumps({"updated": now, "clients": clients, "tasks": tasks}, ensure_ascii=False).encode()), open(f"{root}/data/clients.enc.json", "w"))
 
 d = dt.date.fromisoformat(day); name = f"WAYTEKO_клиенты_{d:%d.%m.%Y}.xlsx"
 xlsx = f"/tmp/{name}"
 subprocess.run([sys.executable, f"{root}/tools/export_vizitki.py", src, xlsx, day], check=True)
 json.dump(box(open(xlsx, "rb").read(), name=name), open(f"{root}/data/clients.xlsx.enc.json", "w"))
 json.dump({"updated": now}, open(f"{root}/data/meta.json", "w"))
-print(f"OK: {len(clients)} клиентов, база от {now}, файл {xlsx}")
+print(f"OK: {len(clients)} клиентов, задач в резервной копии {len(tasks)}, база от {now}, файл {xlsx}")

@@ -13,8 +13,8 @@ box = json.load(open(app_path))
 b = lambda s: base64.b64decode(s)
 key = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), b(box["salt"]), box["iter"], 32)
 app = json.loads(AESGCM(key).decrypt(b(box["iv"]), b(box["ct"]), None))
-# личные задачи пользователя никуда не переносятся и не читаются — убираем сразу
-for k in ("tasks", "gh", "guests", "guest"): app.pop(k, None)
+# служебные поля приложения в интернет-версию не переносятся
+for k in ("gh", "guests", "guest"): app.pop(k, None)
 versions = json.load(open(ver_path))
 
 art = {}
@@ -52,9 +52,37 @@ for cid in app.get("deleted", []):
         writes.append({"op": "delete", "collection": "clients", "doc_id": cid, "if_version": int(versions[cid])})
         s["deleted"].append(art[cid].get("name", cid))
 
+# личные задачи владельца -> коллекция tasks интернет-версии (в отчёт и файл не попадают)
+tasks_dir = sys.argv[5] if len(sys.argv) > 5 else os.path.join(os.path.dirname(os.path.abspath(dump_dir)), "tasks")
+art_t = {}
+for p in glob.glob(os.path.join(tasks_dir, "*.json")):
+    d = json.load(open(p, encoding="utf-8")); d = d["data"] if isinstance(d.get("data"), dict) else d
+    art_t[os.path.basename(p)[:-5]] = d
+ts = {"set": 0, "deleted": 0}
+os.makedirs(f"{out}/tasks", exist_ok=True)
+for t in app.get("tasks", []) or []:
+    tid = t.get("id") if isinstance(t, dict) else None
+    if not tid: continue
+    a = art_t.get(tid)
+    if t.get("del"):
+        if a is not None:
+            if tid not in versions: sys.exit(f"нет версии для задачи {tid} в versions.json")
+            writes.append({"op": "delete", "collection": "tasks", "doc_id": tid, "if_version": int(versions[tid])}); ts["deleted"] += 1
+        continue
+    doc = clean(t)
+    if a is not None and clean(a) == doc: continue
+    op = {"op": "set", "collection": "tasks", "doc_id": tid}
+    if a is not None:
+        if tid not in versions: sys.exit(f"нет версии для задачи {tid} в versions.json")
+        op["if_version"] = int(versions[tid])
+    path = os.path.abspath(f"{out}/tasks/{tid}.json")
+    json.dump(doc, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    op["file_path"] = path; writes.append(op); ts["set"] += 1
+s["tasks_sync_not_for_report"] = ts
+
 for f in glob.glob(f"{out}/writes_*.json"): os.remove(f)
 for i in range(0, len(writes), 50):
     json.dump(writes[i:i + 50], open(f"{out}/writes_{i // 50 + 1}.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 json.dump(s, open(f"{out}/summary.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print(f"Приложение от {s['app_updated']}: клиентов {s['app_clients']}; новых {len(s['added'])}, изменено {len(s['changed'])}, "
-      f"удалено {len(s['deleted'])}, в интернет-версии свежее {len(s['kept_online_newer'])}; пакетов записи: {(len(writes) + 49) // 50}")
+      f"удалено {len(s['deleted'])}, в интернет-версии свежее {len(s['kept_online_newer'])}; задачи: записать {ts['set']}, удалить {ts['deleted']}; пакетов записи: {(len(writes) + 49) // 50}")
