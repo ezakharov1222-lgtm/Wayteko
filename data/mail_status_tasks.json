@@ -1,1 +1,1 @@
-{"report":"tasks","date":"2026-11-02","time_msk":"02:11","sent":false,"tool":null,"error":"Инструменты Gmail недоступны в сессии (коннектор не подключён)"}
+{"report":"tasks","date":"2026-11-02","time_msk":"02:28","sent":true,"tool":"mcp__Gmail__send_message","error":null}
