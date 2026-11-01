@@ -167,6 +167,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .tcheck{width:30px;height:30px;flex:0 0 auto;border-radius:8px;border:2px solid var(--line);background:var(--surface);font-weight:800;font-size:16px;color:var(--surface);padding:0}
 .tcheck[aria-pressed="true"]{background:var(--green);border-color:var(--green)}
 .ttext{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
+.towner{font-size:13px;color:var(--muted)}
 .task.done .ttext{text-decoration:line-through;color:var(--muted)}
 .tbadge{display:inline-block;margin-left:4px;font-size:12px;font-weight:700;color:var(--red)}
 nav.tabs button[aria-selected="true"] .tbadge{color:var(--surface)}
@@ -459,7 +460,7 @@ function taskRow(t, old){
   const who = c ? `<button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>` : (t.cname ? `<b>${esc(t.cname)}</b>` : "");
   return `<article class="card task ${t.done ? "done" : ""}"><div class="trow">
     <button class="tcheck" data-tdone="${esc(t.id)}" aria-pressed="${!!t.done}" type="button" aria-label="${t.done ? "Снять отметку" : "Отметить выполненной"}">${t.done ? "✓" : ""}</button>
-    <div class="tbody">${who}<div class="ttext">${esc(t.text)}</div>${old ? `<div class="muted" style="font-size:12px">было на ${esc(fmtW(t.d))}</div>` : ""}</div>
+    <div class="tbody">${who}<div class="ttext">${esc(t.text)}</div>${t.owner ? `<div class="towner">👤 ${esc(t.owner)}</div>` : ""}${old ? `<div class="muted" style="font-size:12px">было на ${esc(fmtW(t.d))}</div>` : ""}</div>
     <div class="tact">${old ? `<button class="btn small" data-tmove="${esc(t.id)}" type="button">На сегодня</button>` : ""}
       <button class="btn ghost small" data-tdel="${esc(t.id)}" type="button" aria-label="Удалить задачу">✕</button></div></div></article>`;
 }
@@ -472,6 +473,8 @@ function renderTasks(force){
   const over = taskDay === today ? all.filter(t => !t.done && t.d < today).sort((a, b) => a.d.localeCompare(b.d)) : [];
   const opts = clients.filter(c => c.temp !== "refused").sort((a, b) => a.name.localeCompare(b.name, "ru")).map(c => `<option value="${esc(c.name)}"></option>`).join("");
   const keep = view.querySelector("#tk_client")?.value || "", keepT = view.querySelector("#tk_text")?.value || "";
+  const keepO = view.querySelector("#tk_owner") ? view.querySelector("#tk_owner").value : (getMeta().lastOwner || "");
+  const owners = [...new Set(getTasks().map(t => (t.owner || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru")).map(o => `<option value="${esc(o)}"></option>`).join("");
   view.innerHTML = `<div class="tday"><button class="btn small" data-tday="-1" type="button" aria-label="Предыдущий день">‹</button>
       <b>${taskDay === today ? "Сегодня, " : taskDay === addDays(null, 1) ? "Завтра, " : ""}${esc(fmtW(taskDay))}</b>
       <button class="btn small" data-tday="1" type="button" aria-label="Следующий день">›</button>
@@ -479,6 +482,8 @@ function renderTasks(force){
     <form id="taskForm" class="box"><h4>Новая задача${taskDay !== today ? " на " + esc(fmt(taskDay)) : ""}</h4>
       <label class="f">Клиент (необязательно)<input id="tk_client" list="tk_clients" placeholder="Начните вводить название" autocomplete="off" value="${esc(keep)}"></label>
       <datalist id="tk_clients">${opts}</datalist>
+      <label class="f">Ответственный<input id="tk_owner" list="tk_owners" placeholder="Кто выполняет задачу" autocomplete="off" maxlength="60" value="${esc(keepO)}"></label>
+      <datalist id="tk_owners">${owners}</datalist>
       <label class="f">Задача<textarea id="tk_text" placeholder="Например: отправить КП, согласовать встречу, проверить оплату" required>${esc(keepT)}</textarea></label>
       <button class="btn primary" type="submit">Добавить задачу</button></form>
     <h2 class="sec">📋 Задачи на ${taskDay === today ? "сегодня" : esc(fmt(taskDay))} <span class="n">${day.filter(t => !t.done).length} из ${day.length} осталось</span></h2>
@@ -858,7 +863,7 @@ function otRow(t){
   const c = t.cid ? clients.find(x => x.id === t.cid) : null;
   const who = c ? `<button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>` : (t.cname ? `<b>${esc(t.cname)}</b>` : "");
   return `<article class="card ot ${t.done ? "ot-done" : ""}"><div class="ot-row"><span class="ot-box" aria-label="${t.done ? "выполнена" : "не выполнена"}">${t.done ? "✓" : ""}</span>
-    <div class="ot-body">${who}<div class="ot-text">${esc(t.text)}</div></div></div></article>`;
+    <div class="ot-body">${who}<div class="ot-text">${esc(t.text)}</div>${t.owner ? `<div class="muted" style="font-size:13px">👤 ${esc(t.owner)}</div>` : ""}</div></div></article>`;
 }
 function renderOnlineTasks(){
   const today = todayIso(), wk = addDays(null, 7), all = onlineTasks.filter(t => t && !t.del);
@@ -1146,11 +1151,11 @@ document.addEventListener("submit", async e => {
     setGh(tok); setMeta({upErr:"", upRev: -1}); renderPanel(); await uploadNow(true); return; }
   if(e.target.id==="guestForm"){ await guestAction("add"); return; }
   if(e.target.id==="taskForm"){
-    const text = (view.querySelector("#tk_text")?.value || "").trim(), cn = (view.querySelector("#tk_client")?.value || "").trim();
+    const text = (view.querySelector("#tk_text")?.value || "").trim(), cn = (view.querySelector("#tk_client")?.value || "").trim(), owner = (view.querySelector("#tk_owner")?.value || "").trim();
     if(!text){ toast("Напишите задачу"); return; }
     const c = cn ? clients.find(x => x.name.trim().toLowerCase() === cn.toLowerCase()) : null, now = new Date().toISOString();
-    const l = getTasks(); l.push({id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), d: taskDay, cid: c ? c.id : "", cname: c ? "" : cn, text, done: false, created: now, updated: now});
-    if(saveTasks(l)){ view.querySelector("#tk_text").value = ""; view.querySelector("#tk_client").value = ""; renderTasks(true); renderTasksBadge(); toast("Задача добавлена"); }
+    const l = getTasks(); l.push({id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), d: taskDay, cid: c ? c.id : "", cname: c ? "" : cn, owner, text, done: false, created: now, updated: now});
+    if(saveTasks(l)){ setMeta({lastOwner: owner}); view.querySelector("#tk_text").value = ""; view.querySelector("#tk_client").value = ""; renderTasks(true); renderTasksBadge(); toast("Задача добавлена"); }
     return; }
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
