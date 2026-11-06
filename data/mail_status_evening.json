@@ -1,1 +1,1 @@
-{"report":"evening","date":"2026-11-05","time_msk":"19:00","sent":true,"attachment":false,"b64_chars":37132,"tool":"mcp__Gmail__send_message","error":"вложение не удалось передать в инструмент отправки (превышен объём вывода), письмо отправлено без вложения"}
+{"report":"evening","date":"2026-11-06","time_msk":"18:54","sent":true,"attachment":true,"b64_chars":39124,"tool":"mcp__Gmail__send_message","error":null}
