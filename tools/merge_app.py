@@ -80,9 +80,34 @@ for t in app.get("tasks", []) or []:
     op["file_path"] = path; writes.append(op); ts["set"] += 1
 s["tasks_sync_not_for_report"] = ts
 
+# советы эксперта (data/advice.enc.json) -> коллекция advice интернет-версии, doc_id = "a_<id клиента>"
+adv_path = os.path.join(os.path.dirname(os.path.abspath(app_path)), "advice.enc.json")
+adv_dir = sys.argv[6] if len(sys.argv) > 6 else os.path.join(os.path.dirname(os.path.abspath(dump_dir)), "advice")
+if os.path.exists(adv_path):
+    abox = json.load(open(adv_path))
+    akey = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), b(abox["salt"]), abox["iter"], 32)
+    adv = json.loads(AESGCM(akey).decrypt(b(abox["iv"]), b(abox["ct"]), None)).get("items", {})
+    art_a = {}
+    for p in glob.glob(os.path.join(adv_dir, "*.json")):
+        d = json.load(open(p, encoding="utf-8")); d = d["data"] if isinstance(d.get("data"), dict) else d
+        art_a[os.path.basename(p)[:-5]] = d
+    os.makedirs(f"{out}/advice", exist_ok=True); an = 0
+    for cid, v in adv.items():
+        did = "a_" + cid; doc = {k: v.get(k) for k in ("cid", "r", "t", "k", "at")}
+        a = art_a.get(did)
+        if a is not None and clean(a) == doc: continue
+        op = {"op": "set", "collection": "advice", "doc_id": did}
+        if a is not None:
+            if did not in versions: sys.exit(f"нет версии для совета {did} в versions.json")
+            op["if_version"] = int(versions[did])
+        path = os.path.abspath(f"{out}/advice/{did}.json")
+        json.dump(doc, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+        op["file_path"] = path; writes.append(op); an += 1
+    s["advice_sync"] = an
+
 for f in glob.glob(f"{out}/writes_*.json"): os.remove(f)
 for i in range(0, len(writes), 50):
     json.dump(writes[i:i + 50], open(f"{out}/writes_{i // 50 + 1}.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 json.dump(s, open(f"{out}/summary.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print(f"Приложение от {s['app_updated']}: клиентов {s['app_clients']}; новых {len(s['added'])}, изменено {len(s['changed'])}, "
-      f"удалено {len(s['deleted'])}, в интернет-версии свежее {len(s['kept_online_newer'])}; задачи: записать {ts['set']}, удалить {ts['deleted']}; пакетов записи: {(len(writes) + 49) // 50}")
+      f"удалено {len(s['deleted'])}, в интернет-версии свежее {len(s['kept_online_newer'])}; задачи: записать {ts['set']}, удалить {ts['deleted']}; советы: {s.get('advice_sync', 0)}; пакетов записи: {(len(writes) + 49) // 50}")

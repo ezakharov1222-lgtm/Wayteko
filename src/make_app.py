@@ -300,7 +300,7 @@ async function syncNow(pwTry, manual){
       else if(!m.lastSync) toast(`Загружено клиентов: ${clients.length}`);
     } else if(manual) toast("Данные уже свежие");
     render();
-  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); if(!isGuest() && getPw()){ syncShared(); startShare(); } }
+  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); if(!isGuest() && getPw()){ syncShared(); startShare(); syncAdvice(); } }
 }
 
 // ---------- отправка из приложения в репозиторий (приложение — главный источник)
@@ -404,9 +404,26 @@ async function syncShared(manual){
   } catch(e){ if(manual) toast(e && e.message === "token" ? "Токен не подходит" : "Нет связи с другими устройствами"); }
   finally { shareBusy = false; }
 }
+// ---------- совет эксперта: data/advice.enc.json (пишет Claude после каждого касания), только владельцу
+const ADVLS = "wayteko.advice.v1", APATH = "data/advice.enc.json";
+let advBusy = false;
+function loadAdvice(){ if(isGuest()){ ADVICE = {}; return; } try { const v = JSON.parse(localStorage.getItem(ADVLS) || "null"); ADVICE = (v && v.items) || {}; } catch(e){ ADVICE = {}; } }
+async function syncAdvice(){
+  if(isGuest() || !getPw() || advBusy) return; advBusy = true;
+  try {
+    const tok = getGh(), h = tok ? {...ghHeaders(tok), Accept: "application/vnd.github.raw"} : {Accept: "application/vnd.github.raw"};
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${APATH}?ref=main&t=${Date.now()}`, {headers: h, cache: "no-store"});
+    if(!r.ok) return;
+    const a = JSON.parse(new TextDecoder().decode(await openBox(await r.json(), getPw())));
+    let old = null; try { old = JSON.parse(localStorage.getItem(ADVLS) || "null"); } catch(e){}
+    if(old && old.updated === a.updated) return;
+    try { localStorage.setItem(ADVLS, JSON.stringify(a)); } catch(e){}
+    ADVICE = a.items || {}; if(!openId || openId !== "data") { if(openId) renderPanel(); else render(); }
+  } catch(e){} finally { advBusy = false; }
+}
 function startShare(){
   if(shareTimer || isGuest()) return;
-  shareTimer = setInterval(() => { if(!document.hidden && !isGuest() && getPw()) syncShared(); }, getGh() ? 60000 : 180000);
+  shareTimer = setInterval(() => { if(!document.hidden && !isGuest() && getPw()){ syncShared(); syncAdvice(); } }, getGh() ? 60000 : 180000);
 }
 // ---------- задачи на день (видит только владелец; в гостевые копии не попадают)
 const TASKKEY = "wayteko.tasks.v1";
@@ -548,7 +565,7 @@ async function guestSync(pw, manual, login){
   let snap;
   try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
   catch(e){ if(!login) guestRevoked(); return false; }
-  setPw(pw); setRole("guest"); setTasks([]); syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
+  setPw(pw); setRole("guest"); setTasks([]); ADVICE = {}; try { localStorage.removeItem(ADVLS); } catch(e){} syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
   clients = normalizeImport(snap.clients || []); saveLocalOnly();
   setMeta({lastSync: snap.updated, guestName: snap.guestName || ""});
   if(login) toast("Гостевой доступ: только просмотр");
@@ -775,8 +792,10 @@ try { navigator.storage && navigator.storage.persist && navigator.storage.persis
 if("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 document.addEventListener("visibilitychange", () => {
   if(document.hidden){ if(isGuest()) beat("off"); return; }
-  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else { checkGuest(); syncShared(); } });
+  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else { checkGuest(); syncShared(); syncAdvice(); } });
 applyRole();
+loadAdvice();
+if(!isGuest() && getPw()) syncAdvice();
 if(stored!==null) syncNow();
 if(isGuest()) startPresence(); else checkGuest();
 setInterval(() => { if(!document.hidden && !isGuest() && activeGuests().length) checkGuest(); }, 30000);
@@ -809,7 +828,7 @@ manifest = {"name": "WAYTEKO CRM", "short_name": "WAYTEKO", "description": "CRM 
                       {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
 json.dump(manifest, open(f"{OUT}/manifest.webmanifest", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v13";
+open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v14";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
