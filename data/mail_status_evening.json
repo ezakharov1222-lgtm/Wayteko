@@ -1,1 +1,1 @@
-{"report":"evening","date":"2026-11-07","time_msk":"18:54","sent":true,"attachment":true,"b64_chars":39124,"tool":"mcp__Gmail__send_message","error":null}
+{"report":"evening","date":"2026-11-08","time_msk":"19:01","sent":true,"attachment":false,"b64_chars":39100,"tool":"mcp__Gmail__send_message","error":"Base64 decoding failed for attachments[0].content (2 attempts); sent without attachment"}
