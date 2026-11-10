@@ -217,6 +217,39 @@ function callState(c){
 }
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 
+// ---------- кто внёс изменение: ответственный за каждое касание и действие
+function whoAmI(){ return "Интернет-версия"; }
+const HIST_MAX = 60;
+function attrib(prev, patch){
+  const who = whoAmI(), at = new Date().toISOString(), acts = [], out = {...patch, updatedBy: who};
+  if(patch.touches){ const n0 = (prev.touches||[]).length;
+    out.touches = patch.touches.map((t,i) => i >= n0 && t && !t.by ? {...t, by: who, at} : t);
+    if(patch.touches.length > n0) acts.push("записал касание"); }
+  if(patch.meets){ const old = new Map((prev.meets||[]).map(m => [m.id, m]));
+    out.meets = patch.meets.map(m => !old.has(m.id) && !m.by ? {...m, by: who} : m);
+    if(patch.meets.some(m => !old.has(m.id))) acts.push("назначил встречу");
+    else if(patch.meets.some(m => m.del && !old.get(m.id)?.del)) acts.push("удалил встречу");
+    else acts.push("отметил встречу"); }
+  if(patch.temp && patch.temp !== prev.temp) acts.push("статус: " + (TEMPS[patch.temp]?.l || patch.temp));
+  if(patch.next && patch.next !== prev.next && !patch.touches) acts.push("созвон перенесён на " + fmt(patch.next));
+  if(!acts.length) acts.push("изменил данные клиента");
+  out.hist = [...(prev.hist||[]), {at, by: who, a: acts.join(", ")}].slice(-HIST_MAX);
+  return out;
+}
+function mergeClient(a, b){ // объединение двух версий карточки: касания, встречи и журнал не теряются
+  if(!a) return b; if(!b) return a;
+  const base = (b.updated||"") > (a.updated||"") ? b : a, other = base === a ? b : a;
+  const tm = new Map(); [...(other.touches||[]), ...(base.touches||[])].forEach(t => { if(t && t.t){ const k = (t.d||"") + "|" + t.t; tm.set(k, {...(tm.get(k)||{}), ...t}); } });
+  const touches = [...tm.values()].sort((x,y) => (x.d||"").localeCompare(y.d||"") || (x.at||"").localeCompare(y.at||""));
+  const mm = new Map(); [...(other.meets||[]), ...(base.meets||[])].forEach(m => { if(m && m.id){ const p = mm.get(m.id); mm.set(m.id, p ? {...p, ...m, del: !!(p.del || m.del), done: !!(p.done || m.done)} : m); } });
+  const hm = new Map(); [...(other.hist||[]), ...(base.hist||[])].forEach(h => { if(h) hm.set((h.at||"") + "|" + (h.by||"") + "|" + (h.a||""), h); });
+  const hist = [...hm.values()].sort((x,y) => (x.at||"").localeCompare(y.at||"")).slice(-HIST_MAX);
+  const out = {...base, touches}; if(mm.size) out.meets = [...mm.values()]; if(hist.length) out.hist = hist;
+  return out;
+}
+const byTag = n => n ? ` · 👤 ${esc(n)}` : "";
+const fmtAt = v => { if(!v) return ""; const d = new Date(v); return isNaN(d) ? "" : `${fmt(iso(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
 // ---------- состояние
 let db = null, clients = [], loaded = false, tab = "today", openId = null, filterTemp = "", query = "", onlineTasks = [];
 try { tab = localStorage.getItem("vcrm-tab") || "today"; } catch(e) {}
@@ -227,13 +260,15 @@ function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = fals
 
 async function save(id, patch){
   if(!db){ toast("Сохранение недоступно в этом просмотре"); return false; }
-  try { await db.collection("clients").doc(id).update({...patch, updated: new Date().toISOString()}); return true; }
+  const prev = clients.find(c => c.id===id) || {};
+  try { await db.collection("clients").doc(id).update({...attrib(prev, patch), updated: new Date().toISOString()}); return true; }
   catch(e){ toast(e && e.code==="invalid_argument" ? "Нет прав на изменение" : "Не сохранилось, попробуйте ещё раз"); return false; }
 }
 async function create(data){
   if(!db){ toast("Сохранение недоступно в этом просмотре"); return null; }
   const id = "c" + Date.now().toString(36);
-  try { await db.collection("clients").doc(id).set({...data, touches:[], created:new Date().toISOString(), updated:new Date().toISOString()}); return id; }
+  const now = new Date().toISOString(), who = whoAmI();
+  try { await db.collection("clients").doc(id).set({...data, touches:[], created:now, updated:now, createdBy: who, updatedBy: who, hist:[{at: now, by: who, a: "завёл клиента"}]}); return id; }
   catch(e){ toast(e && e.code==="quota_exceeded" ? "База заполнена" : "Не сохранилось, попробуйте ещё раз"); return null; }
 }
 
@@ -300,7 +335,7 @@ function adviceHtml(c){
 
 // ---------- встречи
 const meetSort = (a,b) => (a.d+" "+(a.t||"99:99")).localeCompare(b.d+" "+(b.t||"99:99"));
-const meetsOf = c => (c.meets||[]).filter(m => m && m.d).sort(meetSort);
+const meetsOf = c => (c.meets||[]).filter(m => m && m.d && !m.del).sort(meetSort);
 const nextMeet = c => meetsOf(c).find(m => !m.done && diffDays(m.d, todayIso()) >= 0) || null;
 function upcomingMeets(maxDays){
   const out = [];
@@ -353,7 +388,7 @@ function taskCard(c){
       <button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>
       <span class="temp ${TEMPS[c.temp]?.c||""}">${esc(TEMPS[c.temp]?.l||"")}</span></div>
     <div class="meta">${c.phone?`<span>📞 ${esc(c.phone)}</span>`:""}${c.fio?`<span>${esc(c.fio)}</span>`:""}${c.region?`<span>${esc(c.region)}</span>`:""}</div>
-    ${lt?`<div class="last"><small>Было${lt.d?" "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+    ${lt?`<div class="last"><small>Было${lt.d?" "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
     ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
     ${rec?`<div class="rec"><span>${esc(rec)}</span></div>`:""}
     ${adviceHtml(c)}
@@ -432,12 +467,12 @@ function renderPanel(focus){
   const s = callState(c), lt = lastTouch(c), touches = (c.touches||[]).filter(t=>t&&t.t);
   const nextDraft = draft[c.id] || {};
   overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="${esc(c.name)}">
-    <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div></div>
+    <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div>${c.createdBy||c.updatedBy?`<div class="meta">${c.createdBy?`Завёл: ${esc(c.createdBy)}`:""}${c.updatedBy?`${c.createdBy?" · ":""}Изменил: ${esc(c.updatedBy)}${c.updated?", "+esc(fmtAt(c.updated)):""}`:""}</div>`:""}</div>
       <button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
     <div class="box"><h4>Статус клиента</h4><div class="temps">${Object.entries(TEMPS).map(([k,v]) => `<button class="${v.c}" data-temp="${k}" data-id="${c.id}" aria-pressed="${c.temp===k}" type="button">${v.l}</button>`).join("")}</div></div>
     <div class="box"><h4>Созвон</h4>
       <div class="row1" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${s.k!=="arch"?`<span class="pill ${s.k}">${esc(s.txt)}</span>`:""}<span>${c.next?fmtW(c.next):"дата не назначена"}</span></div>
-      ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+      ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
       ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
       ${recFor(c)?`<div class="rec"><span><b>Рекомендация:</b> ${esc(recFor(c))}</span></div>`:""}
       ${adviceHtml(c)}
@@ -461,7 +496,8 @@ function renderPanel(focus){
       <details ${editing?"open":""} id="editDet"><summary>Изменить данные</summary><form id="editForm" style="display:grid;gap:8px;margin-top:8px">${fields(c)}<button class="btn primary" type="submit">Сохранить данные</button></form></details></div>
     <div class="box"><h4>История касаний (${touches.length})</h4>
       ${c.intro?`<div class="muted" style="font-size:14px"><b>Знакомство:</b> ${esc(c.intro)}</div>`:""}
-      <div class="hist">${touches.slice().reverse().map((t,i) => `<div class="it ${i===0?"lastone":""}"><time>${t.d?fmt(t.d):"—"}</time><div>${esc(t.t)}</div></div>`).join("") || `<div class="muted">Касаний ещё нет.</div>`}</div></div>
+      <div class="hist">${touches.slice().reverse().map((t,i) => `<div class="it ${i===0?"lastone":""}"><time>${t.d?fmt(t.d):"—"}</time><div>${esc(t.t)}${t.by?`<div class="muted" style="font-size:12px">👤 ${esc(t.by)}</div>`:""}</div></div>`).join("") || `<div class="muted">Касаний ещё нет.</div>`}</div>
+      ${(c.hist||[]).length?`<details><summary>Журнал изменений (${c.hist.length})</summary><div class="hist">${c.hist.slice().reverse().map(h => `<div class="it"><time>${esc(fmtAt(h.at))}</time><div><b>${esc(h.by||"—")}</b> — ${esc(h.a||"")}</div></div>`).join("")}</div></details>`:""}</div>
     <div class="box">${confirmDel?`<div class="confirm"><span>Удалить «${esc(c.name)}» вместе с историей?</span><button class="btn small" data-del="${c.id}" style="background:var(--red);color:var(--surface);border-color:var(--red)" type="button">Да, удалить</button><button class="btn small" data-nodel type="button">Отмена</button></div>`
       :`<button class="btn ghost small" data-askdel type="button" style="color:var(--red)">Удалить клиента</button>`}</div>
   </aside>`;
@@ -500,7 +536,7 @@ document.addEventListener("click", async e => {
   if(t.dataset.msetdate){ overlay.querySelector("#m_date").value = t.dataset.msetdate; return; }
   if(t.dataset.meetDone || t.dataset.meetDel){ const c = clients.find(x=>x.id===t.dataset.cid); if(!c) return;
     const list = c.meets||[];
-    const next = t.dataset.meetDone ? list.map(m => m.id===t.dataset.meetDone ? {...m, done:true} : m) : list.filter(m => m.id!==t.dataset.meetDel);
+    const next = t.dataset.meetDone ? list.map(m => m.id===t.dataset.meetDone ? {...m, done:true} : m) : list.map(m => m.id===t.dataset.meetDel ? {...m, del:true} : m);
     if(await save(c.id,{meets:next})) toast(t.dataset.meetDone ? "Отмечено: встреча состоялась" : "Встреча удалена"); return; }
   if(t.dataset.meetIcs){ const c = clients.find(x=>x.id===t.dataset.cid), m = c && (c.meets||[]).find(x=>x.id===t.dataset.meetIcs);
     if(c && m && typeof exportMeetIcs==="function") exportMeetIcs(c,m); return; }

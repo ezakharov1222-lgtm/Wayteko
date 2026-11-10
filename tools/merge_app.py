@@ -14,7 +14,7 @@ b = lambda s: base64.b64decode(s)
 key = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), b(box["salt"]), box["iter"], 32)
 app = json.loads(AESGCM(key).decrypt(b(box["iv"]), b(box["ct"]), None))
 # служебные поля приложения в интернет-версию не переносятся
-for k in ("gh", "guests", "guest"): app.pop(k, None)
+for k in ("gh", "guests", "guest", "editors"): app.pop(k, None)
 versions = json.load(open(ver_path))
 
 art = {}

@@ -198,6 +198,9 @@ div.f{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
 .task.done .ttext{text-decoration:line-through;color:var(--muted)}
 .tbadge{display:inline-block;margin-left:4px;font-size:12px;font-weight:700;color:var(--red)}
 nav.tabs button[aria-selected="true"] .tbadge{color:var(--surface)}
+.editor #tabs [data-tab="tasks"],.editor .ubanner,.editor .box:has(> [data-askdel]),.editor .box:has(> .confirm){display:none!important}
+.upill{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.upill.ed{background:#fff1bf;color:#8a6400;border-color:#f1d38a}
 .guest .temps button{pointer-events:none}.guest .temps button[aria-pressed="false"]{display:none}
 @media (max-width:640px){
   .board{grid-template-columns:repeat(4,82%)}
@@ -210,7 +213,7 @@ nav.tabs button[aria-selected="true"] .tbadge{color:var(--surface)}
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand"><h1>WAYTEKO</h1><div class="date"><span id="todayLbl"></span><span id="guestPill" class="gpill" hidden></span></div></div>
+    <div class="brand"><h1>WAYTEKO</h1><div class="date"><span id="todayLbl"></span><span id="userPill" class="upill" hidden></span><span id="guestPill" class="gpill" hidden></span></div></div>
     <div class="hdr-actions"><button class="btn" id="dataBtn" type="button">⋯ Данные</button><button class="btn primary" id="addBtn" type="button">+ Новый клиент</button></div>
   </header>
   <section class="stats" id="stats" aria-label="Сводка"></section>
@@ -282,6 +285,43 @@ function callState(c){
 }
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 
+// ---------- кто внёс изменение: ответственный за каждое касание и действие
+const USERKEY = "wayteko.user.v1";
+function getUser(){ try { return (localStorage.getItem(USERKEY) || "").trim(); } catch(e){ return ""; } }
+function setUser(n){ try { n ? localStorage.setItem(USERKEY, n) : localStorage.removeItem(USERKEY); } catch(e){} }
+function whoAmI(){ return getUser() || "Без имени"; }
+const validName = n => n.trim().split(/\s+/).filter(w => w.length > 1).length >= 2;
+const HIST_MAX = 60;
+function attrib(prev, patch){
+  const who = whoAmI(), at = new Date().toISOString(), acts = [], out = {...patch, updatedBy: who};
+  if(patch.touches){ const n0 = (prev.touches||[]).length;
+    out.touches = patch.touches.map((t,i) => i >= n0 && t && !t.by ? {...t, by: who, at} : t);
+    if(patch.touches.length > n0) acts.push("записал касание"); }
+  if(patch.meets){ const old = new Map((prev.meets||[]).map(m => [m.id, m]));
+    out.meets = patch.meets.map(m => !old.has(m.id) && !m.by ? {...m, by: who} : m);
+    if(patch.meets.some(m => !old.has(m.id))) acts.push("назначил встречу");
+    else if(patch.meets.some(m => m.del && !old.get(m.id)?.del)) acts.push("удалил встречу");
+    else acts.push("отметил встречу"); }
+  if(patch.temp && patch.temp !== prev.temp) acts.push("статус: " + (TEMPS[patch.temp]?.l || patch.temp));
+  if(patch.next && patch.next !== prev.next && !patch.touches) acts.push("созвон перенесён на " + fmt(patch.next));
+  if(!acts.length) acts.push("изменил данные клиента");
+  out.hist = [...(prev.hist||[]), {at, by: who, a: acts.join(", ")}].slice(-HIST_MAX);
+  return out;
+}
+function mergeClient(a, b){ // объединение двух версий карточки: касания, встречи и журнал не теряются
+  if(!a) return b; if(!b) return a;
+  const base = (b.updated||"") > (a.updated||"") ? b : a, other = base === a ? b : a;
+  const tm = new Map(); [...(other.touches||[]), ...(base.touches||[])].forEach(t => { if(t && t.t){ const k = (t.d||"") + "|" + t.t; tm.set(k, {...(tm.get(k)||{}), ...t}); } });
+  const touches = [...tm.values()].sort((x,y) => (x.d||"").localeCompare(y.d||"") || (x.at||"").localeCompare(y.at||""));
+  const mm = new Map(); [...(other.meets||[]), ...(base.meets||[])].forEach(m => { if(m && m.id){ const p = mm.get(m.id); mm.set(m.id, p ? {...p, ...m, del: !!(p.del || m.del), done: !!(p.done || m.done)} : m); } });
+  const hm = new Map(); [...(other.hist||[]), ...(base.hist||[])].forEach(h => { if(h) hm.set((h.at||"") + "|" + (h.by||"") + "|" + (h.a||""), h); });
+  const hist = [...hm.values()].sort((x,y) => (x.at||"").localeCompare(y.at||"")).slice(-HIST_MAX);
+  const out = {...base, touches}; if(mm.size) out.meets = [...mm.values()]; if(hist.length) out.hist = hist;
+  return out;
+}
+const byTag = n => n ? ` · 👤 ${esc(n)}` : "";
+const fmtAt = v => { if(!v) return ""; const d = new Date(v); return isNaN(d) ? "" : `${fmt(iso(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
 // ---------- состояние
 let db = null, clients = [], loaded = false, tab = "today", openId = null, filterTemp = "", query = "", onlineTasks = [];
 try { tab = localStorage.getItem("vcrm-tab") || "today"; } catch(e) {}
@@ -301,18 +341,19 @@ const newId = () => "c" + Date.now().toString(36) + Math.random().toString(36).s
 async function save(id, patch){
   if(isGuest()){ toast(GUEST_MSG); return false; }
   const i = clients.findIndex(c => c.id===id); if(i<0) return false;
-  const prev = clients[i]; clients[i] = {...prev, ...patch, updated: new Date().toISOString()};
+  const prev = clients[i]; clients[i] = {...prev, ...attrib(prev, patch), updated: new Date().toISOString()};
   if(!persist()){ clients[i] = prev; return false; }
   render(); return true;
 }
 async function create(data){
   if(isGuest()){ toast(GUEST_MSG); return null; }
   const now = new Date().toISOString(), id = newId();
-  clients.push({...data, id, touches:[], created:now, updated:now});
+  const who = whoAmI();
+  clients.push({...data, id, touches:[], created:now, updated:now, createdBy: who, updatedBy: who, hist:[{at: now, by: who, a: "завёл клиента"}]});
   if(!persist()){ clients.pop(); return null; }
   render(); return id;
 }
-function removeClient(id){ if(isGuest()){ toast(GUEST_MSG); return false; } const before = clients; clients = clients.filter(c => c.id!==id);
+function removeClient(id){ if(isGuest()){ toast(GUEST_MSG); return false; } if(isEditor()){ toast("Удалять клиентов может только владелец"); return false; } const before = clients; clients = clients.filter(c => c.id!==id);
   const m0 = getMeta(); setMeta({deleted: [...new Set([...(m0.deleted||[]), id])]});
   if(!persist()){ clients = before; setMeta({deleted: m0.deleted||[]}); return false; } return true; }
 
@@ -331,7 +372,7 @@ function mergeSnapshot(list){
   const byId = new Map(clients.map(c => [c.id, c])), del = new Set(getMeta().deleted || []); let added = 0, changed = 0;
   for(const r of list){ if(del.has(r.id)) continue; const l = byId.get(r.id);
     if(!l){ byId.set(r.id, r); added++; }
-    else if((r.updated||"") > (l.updated||"")){ byId.set(r.id, r); changed++; } }
+    else { const m = mergeClient(l, r); if(JSON.stringify(m) !== JSON.stringify(l)){ byId.set(r.id, m); changed++; } } }
   clients = [...byId.values()]; return {added, changed};
 }
 const fmtStamp = s => { if(!s) return ""; const d = new Date(s); return `${d.getDate()} ${MON[d.getMonth()]}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -340,6 +381,7 @@ async function syncNow(pwTry, manual){
   if(syncBusy) return; syncBusy = true;
   try {
     if(isGuest() && !pwTry){ await guestSync(getPw(), manual, false); return; }
+    if(isEditor() && !pwTry){ await editorSync(getPw(), manual, false); return; }
     let box;
     try { const r = await fetch("data/clients.enc.json?t=" + Date.now(), {cache:"no-store"}); if(!r.ok) throw 0; box = await r.json(); }
     catch(e){ syncState.status = "offline"; if(manual) toast("Нет связи — работаю с сохранёнными данными"); render(); return; }
@@ -347,7 +389,8 @@ async function syncNow(pwTry, manual){
     if(!pw){ syncState.needPw = true; render(); return; }
     let snap;
     try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
-    catch(e){ if(pwTry && await guestSync(pwTry, manual, true)) return; if(pwTry) toast("Неверный пароль"); else setPw(""); syncState.needPw = true; render(); return; }
+    catch(e){ if(pwTry && (await guestSync(pwTry, manual, true) || await editorSync(pwTry, manual, true))) return; if(pwTry) toast("Неверный пароль"); else setPw(""); syncState.needPw = true; render(); return; }
+    if(getRole()){ setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null, sharedSeen: null}); }
     setPw(pw); syncState.needPw = false; syncState.updated = snap.updated; syncState.status = "ok";
     const m = getMeta();
     if(m.lastSync !== snap.updated){
@@ -359,7 +402,7 @@ async function syncNow(pwTry, manual){
       else if(!m.lastSync) toast(`Загружено клиентов: ${clients.length}`);
     } else if(manual) toast("Данные уже свежие");
     render();
-  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); if(!isGuest() && getPw()){ syncShared(); startShare(); syncAdvice(); } }
+  } finally { syncBusy = false; if(isDirty()) scheduleUpload(); if(isOwner() && getPw()){ syncShared(); startShare(); syncAdvice(); } if(isEditor() && getPw()) startEditor(); }
 }
 
 // ---------- отправка из приложения в репозиторий (приложение — главный источник)
@@ -378,6 +421,7 @@ const ghHeaders = tok => ({Authorization: "Bearer " + tok, Accept: "application/
 let upTimer = null, upBusy = false;
 function scheduleUpload(){ if(isGuest() || !getGh() || !getPw()) return; clearTimeout(upTimer); upTimer = setTimeout(() => uploadNow(), 1500); }
 async function uploadNow(manual){
+  if(isEditor()) return editorUpload(manual);
   const tok = getGh(), pw = getPw();
   if(!tok || !pw){ if(manual) toast("Сначала подключите отправку"); return false; }
   if(upBusy){ scheduleUpload(); return false; }
@@ -388,12 +432,14 @@ async function uploadNow(manual){
       try { const sh = await fetchShared(); if(sh && sh.updated !== getMeta().sharedSeen){ const res = mergeShared(sh); if(res.changed){ saveLocalOnly(); render(); } } }
       catch(e){ if(e && e.message === "token") throw e; }
       stampUp = new Date().toISOString();
-      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guests: getGuests(), tasks: getTasks(), gh: tok});
+      if(await pullEditors().catch(() => 0)){ saveLocalOnly(); render(); }
+      const body = JSON.stringify({updated: stampUp, clients, deleted: getMeta().deleted || [], guests: getGuests(), editors: getEditors(), tasks: getTasks(), gh: tok});
       const box = await sealBox(new TextEncoder().encode(body), pw);
       try { await putFile(tok, UPATH, box, "Данные из приложения [skip ci]"); break; }
       catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
     }
     if(activeGuests().length) await putGuestCopies(tok).catch(() => {});
+    if(activeEditors().length) await putEditorCopies(tok).catch(() => {});
     setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: "", sharedSeen: stampUp});
     if(manual) toast("Отправлено");
     return true;
@@ -420,8 +466,8 @@ function mergeShared(sh){
   for(const c of clients){
     if(del.has(c.id)){ changed++; continue; }
     const r = remote.get(c.id);
-    if(r && (r.updated || "") > (c.updated || "")){ out.push(r); changed++; }
-    else { out.push(c); if(!r || (c.updated || "") > (r.updated || "")) localAhead = true; }
+    if(!r){ out.push(c); localAhead = true; }
+    else { const m = mergeClient(c, r); out.push(m); if(JSON.stringify(m) !== JSON.stringify(c)) changed++; if(JSON.stringify(m) !== JSON.stringify(r)) localAhead = true; }
   }
   const have = new Set(out.map(c => c.id));
   for(const [id, r] of remote) if(!have.has(id) && !del.has(id)){ out.push(r); changed++; }
@@ -444,13 +490,22 @@ function mergeShared(sh){
     else if((l.updated || "") > (r.updated || "")) localAhead = true; }
   for(const id of ltm.keys()) if(!rt.some(r => r && r.id === id)) localAhead = true;
   if(tch){ setTasks([...ltm.values()]); changed++; }
+  const re = Array.isArray(sh.editors) ? sh.editors : [];
+  const lem = new Map(getEditors().map(x => [x.id, x])); let ech = false;
+  for(const r of re){ if(!r || !r.id) continue; const l = lem.get(r.id);
+    if(!l || (r.updated || "") > (l.updated || "")){ lem.set(r.id, r); ech = true; }
+    else if((l.updated || "") > (r.updated || "")) localAhead = true; }
+  for(const id of lem.keys()) if(!re.some(r => r && r.id === id)) localAhead = true;
+  if(ech){ setEditors([...lem.values()]); changed++; }
   if(!getGh() && sh.gh){ setGh(sh.gh); setMeta({upErr: "", ghFromDevice: true}); }
   return {changed, localAhead};
 }
 async function syncShared(manual){
-  if(isGuest() || !getPw() || shareBusy || upBusy) return;
+  if(!isOwner() || !getPw() || shareBusy || upBusy) return;
   shareBusy = true;
   try {
+    const ed = await pullEditors().catch(() => 0);
+    if(ed){ saveLocalOnly(); setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); render(); toast(`Изменения от редакторов: ${ed}`); }
     const sh = await fetchShared();
     if(!sh){ if(manual) toast("Других устройств пока нет"); return; }
     if(sh.updated === getMeta().sharedSeen){ if(manual) toast("Все устройства синхронизированы"); return; }
@@ -466,9 +521,9 @@ async function syncShared(manual){
 // ---------- совет эксперта: data/advice.enc.json (пишет Claude после каждого касания), только владельцу
 const ADVLS = "wayteko.advice.v1", APATH = "data/advice.enc.json";
 let advBusy = false;
-function loadAdvice(){ if(isGuest()){ ADVICE = {}; return; } try { const v = JSON.parse(localStorage.getItem(ADVLS) || "null"); ADVICE = (v && v.items) || {}; } catch(e){ ADVICE = {}; } }
+function loadAdvice(){ if(!isOwner()){ ADVICE = {}; return; } try { const v = JSON.parse(localStorage.getItem(ADVLS) || "null"); ADVICE = (v && v.items) || {}; } catch(e){ ADVICE = {}; } }
 async function syncAdvice(){
-  if(isGuest() || !getPw() || advBusy) return; advBusy = true;
+  if(!isOwner() || !getPw() || advBusy) return; advBusy = true;
   try {
     const tok = getGh(), h = tok ? {...ghHeaders(tok), Accept: "application/vnd.github.raw"} : {Accept: "application/vnd.github.raw"};
     const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${APATH}?ref=main&t=${Date.now()}`, {headers: h, cache: "no-store"});
@@ -481,7 +536,7 @@ async function syncAdvice(){
   } catch(e){} finally { advBusy = false; }
 }
 function startShare(){
-  if(shareTimer || isGuest()) return;
+  if(shareTimer || !isOwner()) return;
   shareTimer = setInterval(() => { if(!document.hidden && !isGuest() && getPw()){ syncShared(); syncAdvice(); } }, getGh() ? 60000 : 180000);
 }
 // ---------- задачи на день (видит только владелец; в гостевые копии не попадают)
@@ -499,13 +554,14 @@ function getTasks(){ try { const v = JSON.parse(localStorage.getItem(TASKKEY) ||
 function setTasks(l){ try { localStorage.setItem(TASKKEY, JSON.stringify(l)); } catch(e){} }
 function saveTasks(l){
   if(isGuest()){ toast(GUEST_MSG); return false; }
+  if(isEditor()){ toast("Задачи доступны только владельцу"); return false; }
   setTasks(l); setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload(); return true;
 }
 const liveTasks = () => getTasks().filter(t => t && !t.del);
 function openTasksCount(){ const d = todayIso(); return liveTasks().filter(t => !t.done && t.d <= d).length; }
 function renderTasksBadge(){
   const el = document.getElementById("tasksBadge"); if(!el) return;
-  const n = isGuest() ? 0 : openTasksCount(), u = isGuest() ? 0 : urgentCount();
+  const n = isOwner() ? openTasksCount() : 0, u = isOwner() ? urgentCount() : 0;
   el.textContent = n ? " " + (u ? "🔴" : "") + n : ""; el.classList.toggle("hot", !!u);
 }
 function taskRow(t, old){
@@ -519,7 +575,7 @@ function taskRow(t, old){
       <button class="btn ghost small" data-tdel="${esc(t.id)}" type="button" aria-label="Удалить задачу">✕</button></div></div></article>`;
 }
 function renderTasks(force){
-  if(isGuest()){ tab = "today"; render(); return; }
+  if(!isOwner()){ tab = "today"; render(); return; }
   const ae = document.activeElement;
   if(!force && ae && view.contains(ae) && /INPUT|TEXTAREA/.test(ae.tagName) && view.querySelector("#taskForm")) return;
   const today = todayIso(), all = liveTasks();
@@ -566,7 +622,9 @@ const TABNAME = {today:"Сегодня", board:"Воронка", all:"Все к�
 function getRole(){ try { return localStorage.getItem(ROLEKEY) || ""; } catch(e){ return ""; } }
 function setRole(r){ try { r ? localStorage.setItem(ROLEKEY, r) : localStorage.removeItem(ROLEKEY); } catch(e){} applyRole(); }
 function isGuest(){ return getRole() === "guest"; }
-function applyRole(){ document.documentElement.classList.toggle("guest", isGuest()); }
+function isEditor(){ return getRole() === "editor"; }
+const isOwner = () => !isGuest() && !isEditor();
+function applyRole(){ document.documentElement.classList.toggle("guest", isGuest()); document.documentElement.classList.toggle("editor", isEditor()); }
 function setGuests(l){ try { localStorage.setItem(GUESTKEY, JSON.stringify(l)); } catch(e){} }
 function getGuests(){
   try { const v = JSON.parse(localStorage.getItem(GUESTKEY) || "null"); if(Array.isArray(v)) return v; } catch(e){}
@@ -658,7 +716,7 @@ async function seenFor(g){
   } catch(e){ const prev = guestSeen[g.id]; return prev && !prev.err ? prev : {online:false, at:null, err:true}; }
 }
 async function checkGuest(){
-  const list = activeGuests(); if(!list.length || isGuest()){ guestSeen = {}; renderGuestPill(); return; }
+  const list = activeGuests(); if(!list.length || !isOwner()){ guestSeen = {}; renderGuestPill(); return; }
   const res = await Promise.all(list.map(seenFor)); const next = {};
   list.forEach((g, i) => { next[g.id] = res.at(i); }); guestSeen = next;
   renderGuestPill();
@@ -666,6 +724,8 @@ async function checkGuest(){
   if(openId==="data" && !(a && overlay.contains(a) && /INPUT|TEXTAREA/.test(a.tagName))) renderPanel();
 }
 function renderGuestPill(){
+  const up = document.getElementById("userPill");
+  if(up){ const u = getUser(); up.hidden = !u || isGuest() || !!syncState.needPw; up.className = isEditor() ? "upill ed" : "upill"; up.textContent = isEditor() ? `✏️ ${u} · редактор` : `👤 ${u}`; }
   const el = document.getElementById("guestPill"); if(!el) return;
   if(isGuest()){ el.hidden = false; el.className = "gpill view"; el.textContent = "👁 Гость · только просмотр"; return; }
   const on = activeGuests().filter(g => guestSeen[g.id] && guestSeen[g.id].online).map(g => g.name || "Гость");
@@ -741,6 +801,154 @@ async function guestAction(kind, gid){
   renderGuestPill(); renderPanel(); if(activeGuests().length) checkGuest();
 }
 
+// ---------- доступ с редактированием (до 4 человек; без задач и без удаления клиентов)
+const EDKEY = "wayteko.editors.v1", MAXE = 4;
+function getEditors(){ try { const v = JSON.parse(localStorage.getItem(EDKEY) || "[]"); return Array.isArray(v) ? v : []; } catch(e){ return []; } }
+function setEditors(l){ try { localStorage.setItem(EDKEY, JSON.stringify(l)); } catch(e){} }
+const activeEditors = () => getEditors().filter(x => x.pw && !x.off);
+function genEditorPw(){ return "E" + genGuestPw().slice(1); }
+const edPathFor = async pw => `data/e-${await hex16("wayteko-editor:" + pw)}.enc.json`;
+async function fetchBoxAuth(path){
+  const tok = getGh(), h = tok ? {...ghHeaders(tok), Accept: "application/vnd.github.raw"} : {Accept: "application/vnd.github.raw"};
+  const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=main&t=${Date.now()}`, {headers: h, cache: "no-store"});
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error("http");
+  return await r.json();
+}
+function mergeClientList(list, del){ // в текущий список clients; возвращает число изменённых карточек
+  const delS = new Set(del || []), byId = new Map(clients.map(c => [c.id, c])); let n = 0;
+  for(const r of (list || [])){ if(!r || !r.id || delS.has(r.id)) continue;
+    const l = byId.get(r.id), m = mergeClient(l, r);
+    if(!l || JSON.stringify(m) !== JSON.stringify(l)){ byId.set(r.id, m); n++; } }
+  for(const id of delS) if(byId.delete(id)) n++;
+  clients = [...byId.values()]; return n;
+}
+async function pullEditors(){ // владелец забирает правки редакторов
+  let n = 0;
+  for(const x of activeEditors()){
+    try { const box = await fetchBoxAuth(await edPathFor(x.pw)); if(!box) continue;
+      const snap = JSON.parse(new TextDecoder().decode(await openBox(box, x.pw)));
+      n += mergeClientList(normalizeImport(snap.clients || []), getMeta().deleted || []); } catch(e){}
+  }
+  return n;
+}
+async function putOneEditor(tok, x){
+  const path = await edPathFor(x.pw);
+  for(let attempt = 0; attempt < 3; attempt++){
+    try { const box = await fetchBoxAuth(path);
+      if(box){ const snap = JSON.parse(new TextDecoder().decode(await openBox(box, x.pw))); if(mergeClientList(normalizeImport(snap.clients || []), getMeta().deleted || [])) saveLocalOnly(); } } catch(e){}
+    const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: getMeta().deleted || [], gh: tok, editor: {id: x.id, name: x.name || ""}});
+    try { await putFile(tok, path, await sealBox(new TextEncoder().encode(body), x.pw), "Копия редактора [skip ci]"); return; }
+    catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
+  }
+}
+async function putEditorCopies(tok){ for(const x of activeEditors()){ try { await putOneEditor(tok, x); } catch(e){} } }
+function editorMessage(x){
+  return `WAYTEKO — доступ с редактированием${x.name ? " для " + x.name : ""}\nСсылка: ${APP_URL}\nПароль: ${x.pw}\n\nОткройте ссылку в Safari, введите имя и фамилию и пароль. Можно добавлять клиентов, записывать касания и встречи. Чтобы поставить на экран: «Поделиться» → «На экран «Домой»», затем откройте значок и войдите ещё раз.`;
+}
+function editorBox(){
+  const list = activeEditors();
+  const rows = list.map(x => `<div class="mrow">
+      <div><b>${esc(x.name || "Редактор")}</b></div>
+      <div>Пароль: <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.03em">${esc(x.pw)}</b></div>
+      <div class="actions"><button class="btn primary small" data-act="e-share" data-eid="${esc(x.id)}" type="button">📤 Отправить</button>
+        <button class="btn small" data-act="e-copy" data-eid="${esc(x.id)}" type="button">Скопировать</button>
+        <button class="btn ghost small" data-act="e-new" data-eid="${esc(x.id)}" type="button">Сменить пароль</button>
+        <button class="btn ghost small" data-act="e-off" data-eid="${esc(x.id)}" type="button" style="color:var(--red)">Удалить</button></div></div>`).join("");
+  const add = list.length >= MAXE ? `<div class="note">Добавлено максимум — ${MAXE}. Чтобы добавить нового, удалите одного из списка.</div>`
+    : getGh() ? `<form id="editorForm" style="display:grid;gap:8px;margin-top:4px"><label class="f">Имя нового редактора (видно только вам)<input id="ename" type="text" placeholder="Например: Анна, менеджер" required maxlength="40"></label>
+      <button class="btn primary" type="submit">Добавить редактора</button></form>`
+    : `<div class="note">Сначала подключите отправку в интернет-версию (блок выше).</div>`;
+  return `<div class="box"><h4>Доступ с редактированием · ${list.length} из ${MAXE}</h4>
+    <div class="note">Редактор может добавлять клиентов, записывать касания и встречи, менять статусы и данные. Он не видит и не правит задачи и не может удалять клиентов. Каждое его действие подписывается его именем.</div>
+    ${rows}${add}
+    ${list.length ? `<div class="note">Изменения редактора приходят к вам в течение минуты, пока приложение открыто, и в течение часа — даже если ваши устройства выключены.</div>` : ""}</div>`;
+}
+async function editorAction(kind, eid){
+  const tok = getGh(); if(!tok){ toast("Сначала подключите отправку"); return; }
+  const before = getEditors(), list = before.map(x => ({...x})), now = new Date().toISOString();
+  try {
+    if(kind === "add"){
+      const name = (overlay.querySelector("#ename")?.value || "").trim();
+      if(!name){ toast("Укажите имя редактора"); return; }
+      if(activeEditors().length >= MAXE){ toast(`Не больше ${MAXE} редакторов`); return; }
+      const x = {id: "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, pw: genEditorPw(), updated: now};
+      list.push(x); setEditors(list); await putOneEditor(tok, x);
+      toast(`Редактор «${name}» добавлен — отправьте ему пароль`);
+    } else {
+      const x = list.find(y => y.id === eid); if(!x || !x.pw) return;
+      const oldPath = await edPathFor(x.pw);
+      if(mergeClientList(await (async () => { try { const b = await fetchBoxAuth(oldPath); return b ? normalizeImport(JSON.parse(new TextDecoder().decode(await openBox(b, x.pw))).clients || []) : []; } catch(e){ return []; } })(), getMeta().deleted || [])) saveLocalOnly();
+      if(kind === "new"){ x.pw = genEditorPw(); x.updated = now; setEditors(list); await putOneEditor(tok, x);
+        await deleteFile(tok, oldPath, "Пароль редактора сменён [skip ci]").catch(() => {});
+        toast(`Пароль для «${x.name || "редактора"}» сменён — старый больше не работает`); }
+      else if(kind === "off"){ await deleteFile(tok, oldPath, "Доступ редактора удалён [skip ci]");
+        x.off = true; delete x.pw; x.updated = now; setEditors(list); toast(`Доступ «${x.name || "редактора"}» удалён`); }
+    }
+    setMeta({rev: (getMeta().rev || 0) + 1}); scheduleUpload();
+  } catch(e){ setEditors(before); toast(e && e.message === "token" ? "Токен не подходит — подключите отправку заново" : "Нет связи, попробуйте ещё раз"); }
+  renderPanel();
+}
+// ---------- устройство редактора
+let edTimer = null, edBusy = false;
+function editorRevoked(){
+  setPw(""); setRole(""); setGh(""); clients = []; saveLocalOnly(); setMeta({lastSync: null, deleted: [], rev: 0, upRev: 0});
+  syncState.needPw = true; closePanel(); toast("Доступ изменён или отключён владельцем"); render();
+}
+async function editorSync(pw, manual, login){
+  let box;
+  try { box = await fetchBoxAuth(await edPathFor(pw)); }
+  catch(e){ if(login) return false; syncState.status = "offline"; if(manual) toast("Нет связи — работаю с сохранёнными данными"); render(); return true; }
+  if(!box){ if(!login) editorRevoked(); return false; }
+  let snap;
+  try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
+  catch(e){ if(!login) editorRevoked(); return false; }
+  if(!isEditor()){ clients = []; setMeta({rev: 0, upRev: 0}); }
+  setPw(pw); setRole("editor"); setTasks([]); ADVICE = {}; try { localStorage.removeItem(ADVLS); } catch(e){}
+  if(snap.gh) setGh(snap.gh);
+  syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
+  mergeClientList(normalizeImport(snap.clients || []), snap.deleted || []); saveLocalOnly();
+  setMeta({lastSync: snap.updated, editorName: (snap.editor && snap.editor.name) || "", deleted: snap.deleted || []});
+  if(login) toast("Вход выполнен: доступ с редактированием"); else if(manual) toast("Данные обновлены");
+  if(isDirty()) scheduleUpload();
+  render(); startEditor(); return true;
+}
+function startEditor(){ if(edTimer || !isEditor()) return; edTimer = setInterval(() => { if(!document.hidden && isEditor() && !upBusy) syncNow(); }, 60000); }
+async function editorUpload(manual){
+  const tok = getGh(), pw = getPw(); if(!tok || !pw) return false;
+  if(upBusy){ scheduleUpload(); return false; }
+  upBusy = true; const rev = getMeta().rev || 0;
+  try {
+    const path = await edPathFor(pw);
+    for(let attempt = 0; attempt < 3; attempt++){
+      const box = await fetchBoxAuth(path); if(!box){ editorRevoked(); return false; }
+      const snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw)));
+      mergeClientList(normalizeImport(snap.clients || []), snap.deleted || []); saveLocalOnly();
+      const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: snap.deleted || [], gh: snap.gh || tok, editor: snap.editor || {}});
+      try { await putFile(tok, path, await sealBox(new TextEncoder().encode(body), pw), "Изменения редактора [skip ci]"); break; }
+      catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
+    }
+    setMeta({upRev: rev, lastUpload: new Date().toISOString(), upErr: ""});
+    if(manual) toast("Отправлено"); return true;
+  } catch(e){ setMeta({upErr: "Нет связи — отправлю при следующем открытии"}); if(manual) toast(getMeta().upErr); return false; }
+  finally { upBusy = false; if(openId==="data") renderPanel(); if(isDirty() && getMeta().upRev===rev && !getMeta().upErr) scheduleUpload(); }
+}
+function editorDataPanel(){
+  const m = getMeta();
+  return `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="Данные">
+    <div class="head"><h2>Данные</h2><button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
+    <div class="box"><h4>Доступ с редактированием${m.editorName ? " · " + esc(m.editorName) : ""}</h4>
+      <div>Вы вошли как <b>${esc(getUser())}</b>. Ваши касания и изменения подписываются этим именем.</div>
+      <div>Клиентов: <b>${clients.length}</b>. Данные от: <b>${m.lastSync ? esc(fmtStamp(m.lastSync)) : "—"}</b>${syncState.status==="offline" ? " · сейчас нет связи" : ""}.</div>
+      <div>Последняя отправка: <b>${m.lastUpload ? esc(fmtStamp(m.lastUpload)) : "ещё не было"}</b>${isDirty() ? " · есть неотправленные изменения" : ""}</div>
+      ${m.upErr ? `<div style="color:var(--red)">${esc(m.upErr)}</div>` : ""}
+      <div class="note">Можно добавлять клиентов, записывать касания и встречи. Удаление клиентов и задачи доступны только владельцу.</div>
+      <div class="actions"><button class="btn primary small" data-act="upload" type="button">⬆️ Отправить сейчас</button>
+        <button class="btn small" data-act="sync" type="button">🔄 Обновить</button>
+        <button class="btn small" data-act="csv" type="button">📊 Таблица (.csv)</button>
+        <button class="btn ghost small" data-act="logout" type="button">Выйти</button></div></div>
+  </aside>`;
+}
 function uploadBox(){
   const m = getMeta(), on = !!getGh();
   return `<div class="box"><h4>Отправка в интернет-версию</h4>
@@ -763,9 +971,16 @@ async function downloadXlsx(){
     if(await giveFile(box.name || `WAYTEKO_клиенты_${stamp()}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes)) toast("Файл клиентов сохранён");
   } catch(e){ toast("Не удалось скачать файл. Проверьте интернет"); }
 }
+function nameHtml(){
+  return `<form class="welcome" id="nameForm"><h2>Кто работает в приложении?</h2>
+    <div>Укажите имя и фамилию. Они будут стоять ответственным у каждого касания, нового клиента и изменения, которые вы внесёте.</div>
+    <label class="f">Имя и фамилия<input id="uname" type="text" autocomplete="name" autocapitalize="words" maxlength="60" placeholder="Например: Иван Петров" required value="${esc(getUser())}"></label>
+    <div class="actions"><button class="btn primary" type="submit">Продолжить</button></div></form>`;
+}
 function pwHtml(){
   return `<form class="welcome" id="pwForm"><h2>Вход в WAYTEKO</h2>
-    <div>Введите пароль — основной или гостевой. Он нужен один раз: приложение запомнит его на этом устройстве и само будет подтягивать свежую базу.</div>
+    <div>Введите имя и фамилию и пароль, который вам выдали. Приложение запомнит их на этом устройстве и само будет подтягивать свежую базу.</div>
+    <label class="f">Имя и фамилия<input id="uname" type="text" autocomplete="name" autocapitalize="words" maxlength="60" placeholder="Например: Иван Петров" required value="${esc(getUser())}"></label>
     <label class="f">Пароль<input id="pw" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>
     <div class="actions"><button class="btn primary" type="submit">Войти</button></div></form>`;
 }
@@ -858,6 +1073,7 @@ function renderDataPanel(){
         <button class="btn primary" data-act="xlsx" type="button">📥 Скачать файл клиентов (Excel)</button>
         <button class="btn" data-act="sync" type="button">🔄 Обновить сейчас</button></div></div>
     ${uploadBox()}
+    ${editorBox()}
     ${guestBox()}
     <div class="box"><h4>Резервная копия</h4>
       <div class="note">Последняя резервная копия этого устройства: ${esc(last)}.</div></div>
@@ -870,7 +1086,7 @@ function renderDataPanel(){
       <label class="btn filebtn" for="importFile">📥 Загрузить клиентов из файла (.json)<input id="importFile" type="file" accept=".json,application/json"></label>
       <button class="btn" data-act="csv" type="button">📊 Выгрузить таблицу для Excel (.csv)</button></div>
       <div class="note">Резервную копию можно сохранить в «Файлы», отправить себе на почту или в мессенджер. Тем же файлом база переносится на другой телефон или компьютер.</div></div>
-    <div class="box"><button class="btn ghost small" data-act="logout" type="button">Сменить пароль на этом устройстве</button></div>
+    <div class="box"><div class="note">Вы вошли как <b>${esc(getUser())}</b> (владелец).</div><button class="btn ghost small" data-act="logout" type="button">Выйти / сменить пользователя</button></div>
   </aside>`;
 }
 function welcomeHtml(){
@@ -900,8 +1116,10 @@ function render(){
   if(clients.length && !m.lastSync && (since===null || since>=7)){ bn.hidden = false; bn.className = "banner";
     bn.innerHTML = `<span>💾 ${since===null ? "Резервная копия ещё не сохранялась" : `Резервной копии <b>${since} дн.</b>`}</span><button class="btn small" data-act="backup" type="button">Сохранить сейчас</button>`; }
   else bn.hidden = true;
-  document.documentElement.classList.toggle("locked", !!syncState.needPw);
+  const needName = !syncState.needPw && !getUser();
+  document.documentElement.classList.toggle("locked", !!syncState.needPw || needName);
   if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }
+  else if(needName){ bn.hidden = true; if(!view.querySelector("#nameForm")) view.innerHTML = nameHtml(); }
   else if(!clients.length) view.innerHTML = welcomeHtml();
   else if(tab==="today") view.innerHTML = urgentBanner() + renderToday(over, today, week);
   else if(tab==="otasks") view.innerHTML = db ? renderOnlineTasks() : "";
@@ -909,7 +1127,7 @@ function render(){
   else if(tab==="board") view.innerHTML = renderBoard();
   else if(tab==="all") renderAll();
   else view.innerHTML = renderArch();
-  if(openId) renderPanel();
+  if(openId){ const a = document.activeElement; if(!(a && overlay.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) renderPanel(); }
 }
 const byNext = (a,b) => (a.next||"9999").localeCompare(b.next||"9999") || a.name.localeCompare(b.name,"ru");
 
@@ -952,7 +1170,7 @@ function adviceHtml(c){
 
 // ---------- встречи
 const meetSort = (a,b) => (a.d+" "+(a.t||"99:99")).localeCompare(b.d+" "+(b.t||"99:99"));
-const meetsOf = c => (c.meets||[]).filter(m => m && m.d).sort(meetSort);
+const meetsOf = c => (c.meets||[]).filter(m => m && m.d && !m.del).sort(meetSort);
 const nextMeet = c => meetsOf(c).find(m => !m.done && diffDays(m.d, todayIso()) >= 0) || null;
 function upcomingMeets(maxDays){
   const out = [];
@@ -1005,7 +1223,7 @@ function taskCard(c){
       <button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>
       <span class="temp ${TEMPS[c.temp]?.c||""}">${esc(TEMPS[c.temp]?.l||"")}</span></div>
     <div class="meta">${c.phone?`<span>📞 ${esc(c.phone)}</span>`:""}${c.fio?`<span>${esc(c.fio)}</span>`:""}${c.region?`<span>${esc(c.region)}</span>`:""}</div>
-    ${lt?`<div class="last"><small>Было${lt.d?" "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+    ${lt?`<div class="last"><small>Было${lt.d?" "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
     ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
     ${rec?`<div class="rec"><span>${esc(rec)}</span></div>`:""}
     ${adviceHtml(c)}
@@ -1072,7 +1290,7 @@ function renderArch(){
 // ---------- карточка клиента
 let draft = {}, confirmDel = false, editing = false;
 function renderPanel(focus){
-  if(openId==="data"){ overlay.hidden = false; overlay.innerHTML = isGuest() ? guestDataPanel() : renderDataPanel(); return; }
+  if(openId==="data"){ overlay.hidden = false; overlay.innerHTML = isGuest() ? guestDataPanel() : isEditor() ? editorDataPanel() : renderDataPanel(); return; }
   const c = openId==="new" ? null : clients.find(x => x.id===openId);
   if(openId!=="new" && !c){ closePanel(); return; }
   overlay.hidden = false;
@@ -1085,12 +1303,12 @@ function renderPanel(focus){
   const s = callState(c), lt = lastTouch(c), touches = (c.touches||[]).filter(t=>t&&t.t);
   const nextDraft = draft[c.id] || {};
   overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="${esc(c.name)}">
-    <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div></div>
+    <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div>${c.createdBy||c.updatedBy?`<div class="meta">${c.createdBy?`Завёл: ${esc(c.createdBy)}`:""}${c.updatedBy?`${c.createdBy?" · ":""}Изменил: ${esc(c.updatedBy)}${c.updated?", "+esc(fmtAt(c.updated)):""}`:""}</div>`:""}</div>
       <button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
     <div class="box"><h4>Статус клиента</h4><div class="temps">${Object.entries(TEMPS).map(([k,v]) => `<button class="${v.c}" data-temp="${k}" data-id="${c.id}" aria-pressed="${c.temp===k}" type="button">${v.l}</button>`).join("")}</div></div>
     <div class="box"><h4>Созвон</h4>
       <div class="row1" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${s.k!=="arch"?`<span class="pill ${s.k}">${esc(s.txt)}</span>`:""}<span>${c.next?fmtW(c.next):"дата не назначена"}</span></div>
-      ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}</small>${esc(lt.t)}</div>`:""}
+      ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
       ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
       ${recFor(c)?`<div class="rec"><span><b>Рекомендация:</b> ${esc(recFor(c))}</span></div>`:""}
       ${adviceHtml(c)}
@@ -1114,7 +1332,8 @@ function renderPanel(focus){
       <details ${editing?"open":""} id="editDet"><summary>Изменить данные</summary><form id="editForm" style="display:grid;gap:8px;margin-top:8px">${fields(c)}<button class="btn primary" type="submit">Сохранить данные</button></form></details></div>
     <div class="box"><h4>История касаний (${touches.length})</h4>
       ${c.intro?`<div class="muted" style="font-size:14px"><b>Знакомство:</b> ${esc(c.intro)}</div>`:""}
-      <div class="hist">${touches.slice().reverse().map((t,i) => `<div class="it ${i===0?"lastone":""}"><time>${t.d?fmt(t.d):"—"}</time><div>${esc(t.t)}</div></div>`).join("") || `<div class="muted">Касаний ещё нет.</div>`}</div></div>
+      <div class="hist">${touches.slice().reverse().map((t,i) => `<div class="it ${i===0?"lastone":""}"><time>${t.d?fmt(t.d):"—"}</time><div>${esc(t.t)}${t.by?`<div class="muted" style="font-size:12px">👤 ${esc(t.by)}</div>`:""}</div></div>`).join("") || `<div class="muted">Касаний ещё нет.</div>`}</div>
+      ${(c.hist||[]).length?`<details><summary>Журнал изменений (${c.hist.length})</summary><div class="hist">${c.hist.slice().reverse().map(h => `<div class="it"><time>${esc(fmtAt(h.at))}</time><div><b>${esc(h.by||"—")}</b> — ${esc(h.a||"")}</div></div>`).join("")}</div></details>`:""}</div>
     <div class="box">${confirmDel?`<div class="confirm"><span>Удалить «${esc(c.name)}» вместе с историей?</span><button class="btn small" data-del="${c.id}" style="background:var(--red);color:var(--surface);border-color:var(--red)" type="button">Да, удалить</button><button class="btn small" data-nodel type="button">Отмена</button></div>`
       :`<button class="btn ghost small" data-askdel type="button" style="color:var(--red)">Удалить клиента</button>`}</div>
   </aside>`;
@@ -1153,7 +1372,7 @@ document.addEventListener("click", async e => {
   if(t.dataset.msetdate){ overlay.querySelector("#m_date").value = t.dataset.msetdate; return; }
   if(t.dataset.meetDone || t.dataset.meetDel){ const c = clients.find(x=>x.id===t.dataset.cid); if(!c) return;
     const list = c.meets||[];
-    const next = t.dataset.meetDone ? list.map(m => m.id===t.dataset.meetDone ? {...m, done:true} : m) : list.filter(m => m.id!==t.dataset.meetDel);
+    const next = t.dataset.meetDone ? list.map(m => m.id===t.dataset.meetDone ? {...m, done:true} : m) : list.map(m => m.id===t.dataset.meetDel ? {...m, del:true} : m);
     if(await save(c.id,{meets:next})) toast(t.dataset.meetDone ? "Отмечено: встреча состоялась" : "Встреча удалена"); return; }
   if(t.dataset.meetIcs){ const c = clients.find(x=>x.id===t.dataset.cid), m = c && (c.meets||[]).find(x=>x.id===t.dataset.meetIcs);
     if(c && m && typeof exportMeetIcs==="function") exportMeetIcs(c,m); return; }
@@ -1173,8 +1392,13 @@ document.addEventListener("click", async e => {
   if(t.dataset.act==="devsync"){ await syncShared(true); return; }
   if(t.dataset.act==="ghoff"){ setGh(""); setMeta({upErr:""}); renderPanel(); return; }
   if(t.dataset.act==="sync"){ await syncNow(null, true); return; }
-  if(t.dataset.act==="logout"){ if(isGuest()){ beat("off"); setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null}); }
-    setPw(""); syncState.needPw = true; closePanel(); render(); return; }
+  if(t.dataset.act==="logout"){ if(!isOwner()){ if(isGuest()) beat("off"); setRole(""); setGh(""); clients = []; saveLocalOnly(); setMeta({lastSync: null, deleted: [], rev: 0, upRev: 0}); }
+    setPw(""); setUser(""); syncState.needPw = true; closePanel(); render(); return; }
+  if(t.dataset.act==="e-share" || t.dataset.act==="e-copy"){ const x = activeEditors().find(y => y.id === t.dataset.eid); if(!x) return; const txt = editorMessage(x);
+    if(t.dataset.act==="e-share" && navigator.share){ try { await navigator.share({text: txt}); } catch(_){} return; }
+    try { await navigator.clipboard.writeText(txt); toast("Скопировано — вставьте в сообщение"); } catch(_){ toast(x.pw); } return; }
+  if(t.dataset.act==="e-new"){ await editorAction("new", t.dataset.eid); return; }
+  if(t.dataset.act==="e-off"){ await editorAction("off", t.dataset.eid); return; }
   if(t.dataset.act==="g-share" || t.dataset.act==="g-copy"){ const g = activeGuests().find(x => x.id === t.dataset.gid); if(!g) return; const txt = guestMessage(g);
     if(t.dataset.act==="g-share" && navigator.share){ try { await navigator.share({text: txt}); } catch(_){} return; }
     try { await navigator.clipboard.writeText(txt); toast("Скопировано — вставьте в сообщение гостю"); } catch(_){ toast(g.pw); } return; }
@@ -1232,7 +1456,13 @@ document.addEventListener("submit", async e => {
     const l = getTasks(); l.push({id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), d: taskDay, cid: c ? c.id : "", cname: c ? "" : cn, owner, prio: taskPrio, text, done: false, created: now, updated: now});
     if(saveTasks(l)){ setMeta({lastOwner: owner}); taskPrio = "normal"; view.querySelector("#tk_text").value = ""; view.querySelector("#tk_client").value = ""; renderTasks(true); renderTasksBadge(); toast("Задача добавлена"); }
     return; }
-  if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
+  if(e.target.id==="pwForm"){ const n = (document.querySelector("#uname")?.value || "").trim().replace(/\s+/g, " "), p = (document.querySelector("#pw")?.value || "").trim();
+    if(!validName(n)){ toast("Укажите имя и фамилию"); document.querySelector("#uname")?.focus(); return; }
+    if(p){ setUser(n); await syncNow(p, true); } return; }
+  if(e.target.id==="nameForm"){ const n = (document.querySelector("#uname")?.value || "").trim().replace(/\s+/g, " ");
+    if(!validName(n)){ toast("Укажите имя и фамилию"); return; }
+    setUser(n); toast(`Здравствуйте, ${n.split(" ")[0]}!`); render(); return; }
+  if(e.target.id==="editorForm"){ await editorAction("add"); return; }
   if(e.target.id==="meetForm"){ const c = clients.find(x=>x.id===openId); if(!c) return;
     const v = id => overlay.querySelector(id).value.trim();
     const d = v("#m_date"); if(!d){ toast("Укажите дату встречи"); overlay.querySelector("#m_date").focus(); return; }
@@ -1264,12 +1494,12 @@ try { navigator.storage && navigator.storage.persist && navigator.storage.persis
 if("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 document.addEventListener("visibilitychange", () => {
   if(document.hidden){ if(isGuest()) beat("off"); return; }
-  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else { checkGuest(); syncShared(); syncAdvice(); } });
+  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else if(isOwner()){ checkGuest(); syncShared(); syncAdvice(); } });
 applyRole();
 loadAdvice();
-if(!isGuest() && getPw()) syncAdvice();
+if(isOwner() && getPw()) syncAdvice();
 if(stored!==null) syncNow();
-if(isGuest()) startPresence(); else checkGuest();
+if(isGuest()) startPresence(); else if(isOwner()) checkGuest();
 setInterval(() => { if(!document.hidden && !isGuest() && activeGuests().length) checkGuest(); }, 30000);
 setInterval(() => { if(loaded && !openId) render(); }, 60000);
 })();

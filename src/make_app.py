@@ -108,13 +108,15 @@ rep('<nav class="tabs" role="tablist" id="tabs">', '<div id="banner" hidden></di
 # ---------- хранение на устройстве
 rep('''async function save(id, patch){
   if(!db){ toast("Сохранение недоступно в этом просмотре"); return false; }
-  try { await db.collection("clients").doc(id).update({...patch, updated: new Date().toISOString()}); return true; }
+  const prev = clients.find(c => c.id===id) || {};
+  try { await db.collection("clients").doc(id).update({...attrib(prev, patch), updated: new Date().toISOString()}); return true; }
   catch(e){ toast(e && e.code==="invalid_argument" ? "Нет прав на изменение" : "Не сохранилось, попробуйте ещё раз"); return false; }
 }
 async function create(data){
   if(!db){ toast("Сохранение недоступно в этом просмотре"); return null; }
   const id = "c" + Date.now().toString(36);
-  try { await db.collection("clients").doc(id).set({...data, touches:[], created:new Date().toISOString(), updated:new Date().toISOString()}); return id; }
+  const now = new Date().toISOString(), who = whoAmI();
+  try { await db.collection("clients").doc(id).set({...data, touches:[], created:now, updated:now, createdBy: who, updatedBy: who, hist:[{at: now, by: who, a: "завёл клиента"}]}); return id; }
   catch(e){ toast(e && e.code==="quota_exceeded" ? "База заполнена" : "Не сохранилось, попробуйте ещё раз"); return null; }
 }''', '''// ---------- хранение: только на этом устройстве
 const KEY = "wayteko.clients.v1", META = "wayteko.meta.v1";
@@ -816,6 +818,7 @@ rep('''  if(e.target.id==="meetForm"){''', '''  if(e.target.id==="ghForm"){ cons
     return; }
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){''')
+exec(open(f"{SP}/roles_patch.py", encoding="utf-8").read())  # имя при входе, ответственные, доступ «Редактор»
 assert "db.collection" not in s and "window.claude" not in s
 os.makedirs(OUT, exist_ok=True)
 open(f"{OUT}/index.html", "w", encoding="utf-8").write(s)
@@ -828,7 +831,7 @@ manifest = {"name": "WAYTEKO CRM", "short_name": "WAYTEKO", "description": "CRM 
                       {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
 json.dump(manifest, open(f"{OUT}/manifest.webmanifest", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v14";
+open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v15";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
