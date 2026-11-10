@@ -15,7 +15,7 @@ rep('<span id="guestPill" class="gpill" hidden></span>', '<span id="userPill" cl
 rep('function whoAmI(){ return "Интернет-версия"; }', '''const USERKEY = "wayteko.user.v1";
 function getUser(){ try { return (localStorage.getItem(USERKEY) || "").trim(); } catch(e){ return ""; } }
 function setUser(n){ try { n ? localStorage.setItem(USERKEY, n) : localStorage.removeItem(USERKEY); } catch(e){} }
-function whoAmI(){ return getUser() || "Без имени"; }
+function whoAmI(){ return getUser() || (isEditor() ? "Редактор" : isGuest() ? "Гость" : "Владелец"); }
 const validName = n => n.trim().split(/\\s+/).filter(w => w.length > 1).length >= 2;''')
 
 # сохранение и создание клиента — с ответственным и журналом
@@ -125,20 +125,17 @@ rep('''function pwHtml(){
 }
 function pwHtml(){
   return `<form class="welcome" id="pwForm"><h2>Вход в WAYTEKO</h2>
-    <div>Введите имя и фамилию и пароль, который вам выдали. Приложение запомнит их на этом устройстве и само будет подтягивать свежую базу.</div>
-    <label class="f">Имя и фамилия<input id="uname" type="text" autocomplete="name" autocapitalize="words" maxlength="60" placeholder="Например: Иван Петров" required value="${esc(getUser())}"></label>
+    <div>Введите пароль, который вам выдали. Имя и фамилия закреплены за паролем — их назначает владелец, менять их не нужно. Приложение запомнит вход на этом устройстве.</div>
     <label class="f">Пароль<input id="pw" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>''')
 rep('''  if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }''',
-    '''  if(e.target.id==="pwForm"){ const n = (document.querySelector("#uname")?.value || "").trim().replace(/\\s+/g, " "), p = (document.querySelector("#pw")?.value || "").trim();
-    if(!validName(n)){ toast("Укажите имя и фамилию"); document.querySelector("#uname")?.focus(); return; }
-    if(p){ setUser(n); await syncNow(p, true); } return; }
+    '''  if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="nameForm"){ const n = (document.querySelector("#uname")?.value || "").trim().replace(/\\s+/g, " ");
     if(!validName(n)){ toast("Укажите имя и фамилию"); return; }
     setUser(n); toast(`Здравствуйте, ${n.split(" ")[0]}!`); render(); return; }
   if(e.target.id==="editorForm"){ await editorAction("add"); return; }''')
 rep('''  document.documentElement.classList.toggle("locked", !!syncState.needPw);
   if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }''',
-    '''  const needName = !syncState.needPw && !getUser();
+    '''  const needName = !syncState.needPw && isOwner() && !getUser();
   document.documentElement.classList.toggle("locked", !!syncState.needPw || needName);
   if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }
   else if(needName){ bn.hidden = true; if(!view.querySelector("#nameForm")) view.innerHTML = nameHtml(); }''')
@@ -208,7 +205,7 @@ function editorBox(){
         <button class="btn ghost small" data-act="e-new" data-eid="${esc(x.id)}" type="button">Сменить пароль</button>
         <button class="btn ghost small" data-act="e-off" data-eid="${esc(x.id)}" type="button" style="color:var(--red)">Удалить</button></div></div>`).join("");
   const add = list.length >= MAXE ? `<div class="note">Добавлено максимум — ${MAXE}. Чтобы добавить нового, удалите одного из списка.</div>`
-    : getGh() ? `<form id="editorForm" style="display:grid;gap:8px;margin-top:4px"><label class="f">Имя нового редактора (видно только вам)<input id="ename" type="text" placeholder="Например: Анна, менеджер" required maxlength="40"></label>
+    : getGh() ? `<form id="editorForm" style="display:grid;gap:8px;margin-top:4px"><label class="f">Имя и фамилия редактора (закрепляются за паролем)<input id="ename" type="text" autocapitalize="words" placeholder="Например: Анна Смирнова" required maxlength="60"></label>
       <button class="btn primary" type="submit">Добавить редактора</button></form>`
     : `<div class="note">Сначала подключите отправку в интернет-версию (блок выше).</div>`;
   return `<div class="box"><h4>Доступ с редактированием · ${list.length} из ${MAXE}</h4>
@@ -222,7 +219,7 @@ async function editorAction(kind, eid){
   try {
     if(kind === "add"){
       const name = (overlay.querySelector("#ename")?.value || "").trim();
-      if(!name){ toast("Укажите имя редактора"); return; }
+      if(!validName(name)){ toast("Укажите имя и фамилию редактора"); return; }
       if(activeEditors().length >= MAXE){ toast(`Не больше ${MAXE} редакторов`); return; }
       const x = {id: "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, pw: genEditorPw(), updated: now};
       list.push(x); setEditors(list); await putOneEditor(tok, x);
@@ -258,10 +255,11 @@ async function editorSync(pw, manual, login){
   if(!isEditor()){ clients = []; setMeta({rev: 0, upRev: 0}); }
   setPw(pw); setRole("editor"); setTasks([]); ADVICE = {}; try { localStorage.removeItem(ADVLS); } catch(e){}
   if(snap.gh) setGh(snap.gh);
+  const nm = ((snap.editor && snap.editor.name) || "").trim(); setUser(nm);
   syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
   mergeClientList(normalizeImport(snap.clients || []), snap.deleted || []); saveLocalOnly();
   setMeta({lastSync: snap.updated, editorName: (snap.editor && snap.editor.name) || "", deleted: snap.deleted || []});
-  if(login) toast("Вход выполнен: доступ с редактированием"); else if(manual) toast("Данные обновлены");
+  if(login) toast(nm ? `Вы вошли как ${nm} · доступ с редактированием` : "Вход выполнен: доступ с редактированием"); else if(manual) toast("Данные обновлены");
   if(isDirty()) scheduleUpload();
   render(); startEditor(); return true;
 }
@@ -290,7 +288,7 @@ function editorDataPanel(){
   return `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="Данные">
     <div class="head"><h2>Данные</h2><button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
     <div class="box"><h4>Доступ с редактированием${m.editorName ? " · " + esc(m.editorName) : ""}</h4>
-      <div>Вы вошли как <b>${esc(getUser())}</b>. Ваши касания и изменения подписываются этим именем.</div>
+      <div>Вы вошли как <b>${esc(getUser())}</b> — имя закреплено за вашим паролем владельцем. Ваши касания и изменения подписываются этим именем.</div>
       <div>Клиентов: <b>${clients.length}</b>. Данные от: <b>${m.lastSync ? esc(fmtStamp(m.lastSync)) : "—"}</b>${syncState.status==="offline" ? " · сейчас нет связи" : ""}.</div>
       <div>Последняя отправка: <b>${m.lastUpload ? esc(fmtStamp(m.lastUpload)) : "ещё не было"}</b>${isDirty() ? " · есть неотправленные изменения" : ""}</div>
       ${m.upErr ? `<div style="color:var(--red)">${esc(m.upErr)}</div>` : ""}
@@ -307,3 +305,17 @@ function uploadBox(){''')
 rep('''  if(openId) renderPanel();
 }''', '''  if(openId){ const a = document.activeElement; if(!(a && overlay.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) renderPanel(); }
 }''')
+
+# гость: имя и фамилия тоже назначаются владельцем и закрепляются за паролем
+rep('''  setMeta({lastSync: snap.updated, guestName: snap.guestName || ""});''',
+    '''  setMeta({lastSync: snap.updated, guestName: snap.guestName || ""}); setUser((snap.guestName || "").trim());''')
+rep('''<label class="f">Имя нового гостя (видно только вам)<input id="gname" type="text" placeholder="Например: Иван, директор" required maxlength="40"></label>''',
+    '''<label class="f">Имя и фамилия гостя (закрепляются за паролем)<input id="gname" type="text" autocapitalize="words" placeholder="Например: Иван Петров" required maxlength="60"></label>''')
+rep('''      if(!name){ toast("Укажите имя гостя"); return; }''', '''      if(!validName(name)){ toast("Укажите имя и фамилию гостя"); return; }''')
+rep('''el.textContent = "👁 Гость · только просмотр"; return; }''', '''el.textContent = `👁 ${getUser() || "Гость"} · только просмотр`; return; }''')
+rep('''  if(login) toast("Гостевой доступ: только просмотр");''', '''  if(login) toast(snap.guestName ? `Вы вошли как ${snap.guestName} · только просмотр` : "Гостевой доступ: только просмотр");''')
+
+# имя владельца — общее для всех его устройств (вводится один раз)
+rep('''editors: getEditors(), tasks: getTasks(), gh: tok});''', '''editors: getEditors(), tasks: getTasks(), gh: tok, ownerName: getUser()});''')
+rep('''  if(!getGh() && sh.gh){''', '''  if(!getUser() && sh.ownerName){ setUser(sh.ownerName); changed++; }
+  if(!getGh() && sh.gh){''')
