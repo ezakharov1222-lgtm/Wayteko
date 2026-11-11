@@ -3,7 +3,7 @@
 # и не удаляет клиентов). Владелец (главный пароль) может всё.
 
 # ---------- стили
-rep('.guest .temps button{pointer-events:none}', '''.editor #tabs [data-tab="tasks"],.editor .ubanner,.editor .box:has(> [data-askdel]),.editor .box:has(> .confirm){display:none!important}
+rep('.guest .temps button{pointer-events:none}', '''.editor .ubanner,.editor .box:has(> [data-askdel]),.editor .box:has(> .confirm){display:none!important}
 .upill{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
 .upill.ed{background:#fff1bf;color:#8a6400;border-color:#f1d38a}
 .guest .temps button{pointer-events:none}''')
@@ -76,7 +76,7 @@ rep('''    if(isGuest() && !pwTry){ await guestSync(getPw(), manual, false); ret
 rep('''catch(e){ if(pwTry && await guestSync(pwTry, manual, true)) return;''',
     '''catch(e){ if(pwTry && (await guestSync(pwTry, manual, true) || await editorSync(pwTry, manual, true))) return;''')
 rep('''    setPw(pw); syncState.needPw = false; syncState.updated = snap.updated; syncState.status = "ok";''',
-    '''    if(getRole()){ setRole(""); clients = []; saveLocalOnly(); setMeta({lastSync: null, sharedSeen: null}); }
+    '''    if(getRole()){ setRole(""); clients = []; setTasks([]); saveLocalOnly(); setMeta({lastSync: null, sharedSeen: null}); }
     setPw(pw); syncState.needPw = false; syncState.updated = snap.updated; syncState.status = "ok";''')
 rep('''if(!isGuest() && getPw()){ syncShared(); startShare(); syncAdvice(); } }''',
     '''if(isOwner() && getPw()){ syncShared(); startShare(); syncAdvice(); } if(isEditor() && getPw()) startEditor(); }''')
@@ -90,12 +90,6 @@ rep('''  if(isGuest() || !getPw() || advBusy) return; advBusy = true;''', '''  i
 rep('''  if(shareTimer || isGuest()) return;''', '''  if(shareTimer || !isOwner()) return;''')
 rep('''  const list = activeGuests(); if(!list.length || isGuest()){ guestSeen = {}; renderGuestPill(); return; }''',
     '''  const list = activeGuests(); if(!list.length || !isOwner()){ guestSeen = {}; renderGuestPill(); return; }''')
-rep('''function saveTasks(l){
-  if(isGuest()){ toast(GUEST_MSG); return false; }''', '''function saveTasks(l){
-  if(isGuest()){ toast(GUEST_MSG); return false; }
-  if(isEditor()){ toast("Задачи доступны только владельцу"); return false; }''')
-rep('''  if(isGuest()){ tab = "today"; render(); return; }''', '''  if(!isOwner()){ tab = "today"; render(); return; }''')
-rep('''  const n = isGuest() ? 0 : openTasksCount(), u = isGuest() ? 0 : urgentCount();''', '''  const n = isOwner() ? openTasksCount() : 0, u = isOwner() ? urgentCount() : 0;''')
 rep('''  if(openId==="data"){ overlay.hidden = false; overlay.innerHTML = isGuest() ? guestDataPanel() : renderDataPanel(); return; }''',
     '''  if(openId==="data"){ overlay.hidden = false; overlay.innerHTML = isGuest() ? guestDataPanel() : isEditor() ? editorDataPanel() : renderDataPanel(); return; }''')
 rep('''  if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else { checkGuest(); syncShared(); syncAdvice(); } });''',
@@ -172,21 +166,65 @@ function mergeClientList(list, del){ // в текущий список clients; 
   for(const id of delS) if(byId.delete(id)) n++;
   clients = [...byId.values()]; return n;
 }
+// задачи редакторов: у владельца — только просмотр; свои задачи владельца редакторам не уходят
+const EDTKEY = "wayteko.edtasks.v1";
+function getEdTasks(){ try { const v = JSON.parse(localStorage.getItem(EDTKEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch(e){ return {}; } }
+function putEdTasks(x, list){
+  if(!Array.isArray(list)) return false;
+  const all = getEdTasks(), prev = JSON.stringify((all[x.id] || {}).tasks || []), next = JSON.stringify(list);
+  if(prev === next && (all[x.id] || {}).name === (x.name || "")) return false;
+  all[x.id] = {name: x.name || "", tasks: list};
+  for(const id of Object.keys(all)) if(!activeEditors().some(y => y.id === id)) delete all[id];
+  try { localStorage.setItem(EDTKEY, JSON.stringify(all)); } catch(e){} return true;
+}
+function mergeOwnTasks(list){ // устройство редактора: свои задачи из своей копии (новее — побеждает)
+  if(!Array.isArray(list)) return 0;
+  const m = new Map(getTasks().map(t => [t.id, t])); let n = 0;
+  for(const r of list){ if(!r || !r.id) continue; const l = m.get(r.id); if(!l || (r.updated || "") > (l.updated || "")){ m.set(r.id, r); n++; } }
+  if(n){ setTasks([...m.values()]); renderTasksBadge(); if(tab === "tasks" && !openId) renderTasks(); }
+  return n;
+}
+function edTaskRow(t, old){
+  const c = t.cid ? clients.find(x => x.id === t.cid) : null, p = prioOf(t);
+  const who = c ? `<button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>` : (t.cname ? `<b>${esc(t.cname)}</b>` : "");
+  return `<article class="card task prio-${p} ${t.done ? "done" : ""}"><div class="trow">
+    <span class="tcheck" aria-label="${t.done ? "выполнена" : "не выполнена"}" style="display:inline-flex;align-items:center;justify-content:center">${t.done ? "✓" : ""}</span>
+    <div class="tbody"><div><span class="pbadge p-${p}">${PRIO[p].l}</span></div>${who}<div class="ttext">${esc(t.text)}</div>
+      ${t.owner ? `<div class="towner">👤 ${esc(t.owner)}</div>` : ""}${old ? `<div class="muted" style="font-size:12px">было на ${esc(fmtW(t.d))}</div>` : ""}</div></div></article>`;
+}
+function edTasksHtml(){
+  if(!isOwner()) return "";
+  const today = todayIso(), all = getEdTasks(), eds = activeEditors().filter(x => all[x.id]);
+  if(!eds.length) return "";
+  let h = `<h2 class="sec">✏️ Задачи редакторов <span class="n">только просмотр</span></h2>`;
+  for(const x of eds){
+    const list = (all[x.id].tasks || []).filter(t => t && !t.del);
+    const day = list.filter(t => t.d === taskDay).sort(byPrio);
+    const over = taskDay === today ? list.filter(t => !t.done && t.d < today).sort(byPrio) : [];
+    h += `<div class="box" style="margin-top:8px"><h4>${esc(x.name || "Редактор")} · ${day.filter(t => !t.done).length} из ${day.length} осталось${over.length ? ` · хвостов ${over.length}` : ""}</h4>
+      ${day.length ? `<div class="list">${day.map(t => edTaskRow(t, false)).join("")}</div>` : `<div class="muted">На этот день задач нет.</div>`}
+      ${over.length ? `<div class="list" style="margin-top:6px">${over.map(t => edTaskRow(t, true)).join("")}</div>` : ""}</div>`;
+  }
+  return h;
+}
 async function pullEditors(){ // владелец забирает правки редакторов
   let n = 0;
   for(const x of activeEditors()){
     try { const box = await fetchBoxAuth(await edPathFor(x.pw)); if(!box) continue;
       const snap = JSON.parse(new TextDecoder().decode(await openBox(box, x.pw)));
-      n += mergeClientList(normalizeImport(snap.clients || []), getMeta().deleted || []); } catch(e){}
+      n += mergeClientList(normalizeImport(snap.clients || []), getMeta().deleted || []);
+      if(putEdTasks(x, snap.tasks) && tab === "tasks" && !openId) renderTasks(); } catch(e){}
   }
   return n;
 }
 async function putOneEditor(tok, x){
   const path = await edPathFor(x.pw);
   for(let attempt = 0; attempt < 3; attempt++){
+    let etasks = (getEdTasks()[x.id] || {}).tasks || [];
     try { const box = await fetchBoxAuth(path);
-      if(box){ const snap = JSON.parse(new TextDecoder().decode(await openBox(box, x.pw))); if(mergeClientList(normalizeImport(snap.clients || []), getMeta().deleted || [])) saveLocalOnly(); } } catch(e){}
-    const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: getMeta().deleted || [], gh: tok, editor: {id: x.id, name: x.name || ""}});
+      if(box){ const snap = JSON.parse(new TextDecoder().decode(await openBox(box, x.pw))); if(mergeClientList(normalizeImport(snap.clients || []), getMeta().deleted || [])) saveLocalOnly();
+        etasks = Array.isArray(snap.tasks) ? snap.tasks : etasks; putEdTasks(x, etasks); } } catch(e){}
+    const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: getMeta().deleted || [], gh: tok, editor: {id: x.id, name: x.name || ""}, tasks: etasks});
     try { await putFile(tok, path, await sealBox(new TextEncoder().encode(body), x.pw), "Копия редактора [skip ci]"); return; }
     catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
   }
@@ -209,7 +247,7 @@ function editorBox(){
       <button class="btn primary" type="submit">Добавить редактора</button></form>`
     : `<div class="note">Сначала подключите отправку в интернет-версию (блок выше).</div>`;
   return `<div class="box"><h4>Доступ с редактированием · ${list.length} из ${MAXE}</h4>
-    <div class="note">Редактор может добавлять клиентов, записывать касания и встречи, менять статусы и данные. Он не видит и не правит задачи и не может удалять клиентов. Каждое его действие подписывается его именем.</div>
+    <div class="note">Редактор может добавлять клиентов, записывать касания и встречи, менять статусы и данные, вести свои задачи. Ваши задачи он не видит, клиентов удалять не может. Его задачи видны вам во вкладке «Задачи». Каждое его действие подписывается его именем.</div>
     ${rows}${add}
     ${list.length ? `<div class="note">Изменения редактора приходят к вам в течение минуты, пока приложение открыто, и в течение часа — даже если ваши устройства выключены.</div>` : ""}</div>`;
 }
@@ -252,12 +290,13 @@ async function editorSync(pw, manual, login){
   let snap;
   try { snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw))); }
   catch(e){ if(!login) editorRevoked(); return false; }
-  if(!isEditor()){ clients = []; setMeta({rev: 0, upRev: 0}); }
-  setPw(pw); setRole("editor"); setTasks([]); ADVICE = {}; try { localStorage.removeItem(ADVLS); } catch(e){}
+  if(!isEditor()){ clients = []; setTasks([]); setMeta({rev: 0, upRev: 0}); }
+  setPw(pw); setRole("editor"); ADVICE = {}; try { localStorage.removeItem(ADVLS); } catch(e){}
   if(snap.gh) setGh(snap.gh);
   const nm = ((snap.editor && snap.editor.name) || "").trim(); setUser(nm);
   syncState.needPw = false; syncState.status = "ok"; syncState.updated = snap.updated;
   mergeClientList(normalizeImport(snap.clients || []), snap.deleted || []); saveLocalOnly();
+  mergeOwnTasks(snap.tasks);
   setMeta({lastSync: snap.updated, editorName: (snap.editor && snap.editor.name) || "", deleted: snap.deleted || []});
   if(login) toast(nm ? `Вы вошли как ${nm} · доступ с редактированием` : "Вход выполнен: доступ с редактированием"); else if(manual) toast("Данные обновлены");
   if(isDirty()) scheduleUpload();
@@ -273,8 +312,8 @@ async function editorUpload(manual){
     for(let attempt = 0; attempt < 3; attempt++){
       const box = await fetchBoxAuth(path); if(!box){ editorRevoked(); return false; }
       const snap = JSON.parse(new TextDecoder().decode(await openBox(box, pw)));
-      mergeClientList(normalizeImport(snap.clients || []), snap.deleted || []); saveLocalOnly();
-      const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: snap.deleted || [], gh: snap.gh || tok, editor: snap.editor || {}});
+      mergeClientList(normalizeImport(snap.clients || []), snap.deleted || []); saveLocalOnly(); mergeOwnTasks(snap.tasks);
+      const body = JSON.stringify({updated: new Date().toISOString(), clients, deleted: snap.deleted || [], gh: snap.gh || tok, editor: snap.editor || {}, tasks: getTasks()});
       try { await putFile(tok, path, await sealBox(new TextEncoder().encode(body), pw), "Изменения редактора [skip ci]"); break; }
       catch(e){ if(e && e.message === "conflict" && attempt < 2) continue; throw e; }
     }
@@ -292,7 +331,7 @@ function editorDataPanel(){
       <div>Клиентов: <b>${clients.length}</b>. Данные от: <b>${m.lastSync ? esc(fmtStamp(m.lastSync)) : "—"}</b>${syncState.status==="offline" ? " · сейчас нет связи" : ""}.</div>
       <div>Последняя отправка: <b>${m.lastUpload ? esc(fmtStamp(m.lastUpload)) : "ещё не было"}</b>${isDirty() ? " · есть неотправленные изменения" : ""}</div>
       ${m.upErr ? `<div style="color:var(--red)">${esc(m.upErr)}</div>` : ""}
-      <div class="note">Можно добавлять клиентов, записывать касания и встречи. Удаление клиентов и задачи доступны только владельцу.</div>
+      <div class="note">Можно добавлять клиентов, записывать касания и встречи, вести свои задачи. Удалять клиентов может только владелец. Ваши задачи видит владелец.</div>
       <div class="actions"><button class="btn primary small" data-act="upload" type="button">⬆️ Отправить сейчас</button>
         <button class="btn small" data-act="sync" type="button">🔄 Обновить</button>
         <button class="btn small" data-act="csv" type="button">📊 Таблица (.csv)</button>
@@ -316,6 +355,12 @@ rep('''el.textContent = "👁 Гость · только просмотр"; retu
 rep('''  if(login) toast("Гостевой доступ: только просмотр");''', '''  if(login) toast(snap.guestName ? `Вы вошли как ${snap.guestName} · только просмотр` : "Гостевой доступ: только просмотр");''')
 
 # имя владельца — общее для всех его устройств (вводится один раз)
-rep('''editors: getEditors(), tasks: getTasks(), gh: tok});''', '''editors: getEditors(), tasks: getTasks(), gh: tok, ownerName: getUser()});''')
+rep('''editors: getEditors(), tasks: getTasks(), gh: tok});''', '''editors: getEditors(), tasks: getTasks(), gh: tok, ownerName: getUser(), editorTasks: getEdTasks()});''')
 rep('''  if(!getGh() && sh.gh){''', '''  if(!getUser() && sh.ownerName){ setUser(sh.ownerName); changed++; }
   if(!getGh() && sh.gh){''')
+
+# вкладка «Задачи»: у владельца — блок задач редакторов, у редактора — пояснение; автор задачи
+rep("""    <p class="note" style="margin-top:14px">🔒 Задачи видите только вы — на всех своих устройствах. Гостям они не показываются и в их копии не попадают.</p>`;""",
+    """    ${edTasksHtml()}
+    <p class="note" style="margin-top:14px">${isEditor() ? "🔒 Это ваши задачи. Их видите вы и владелец; гостям они не показываются." : "🔒 Ваши задачи видите только вы — на всех своих устройствах. Редакторам и гостям они не показываются."}</p>`;""")
+rep("""owner, prio: taskPrio, text, done: false, created: now, updated: now});""", """owner, prio: taskPrio, text, done: false, created: now, updated: now, by: whoAmI()});""")

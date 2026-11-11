@@ -72,6 +72,8 @@ for x in eds:
         print(f"не открылся файл редактора {x.get('name')}"); continue
     app["clients"], n = merge_list(app.get("clients") or [], snap.get("clients"), deleted)
     total += n; files[path] = (x, snap)
+    et = app.setdefault("editorTasks", {}); new = {"name": x.get("name") or "", "tasks": snap.get("tasks") or []}
+    if et.get(x["id"]) != new: et[x["id"]] = new; total += 1
 now = dt.datetime.now(dt.timezone.utc).isoformat()
 if total:
     app["updated"] = now
@@ -81,5 +83,5 @@ for path, (x, snap) in files.items():
     merged, n = merge_list(snap.get("clients") or [], app["clients"], deleted)
     if n:
         enc({"updated": now, "clients": merged, "deleted": sorted(deleted), "gh": app.get("gh") or snap.get("gh"),
-             "editor": {"id": x.get("id"), "name": x.get("name") or ""}}, path, x["pw"]); upd += 1
+             "editor": {"id": x.get("id"), "name": x.get("name") or ""}, "tasks": snap.get("tasks") or []}, path, x["pw"]); upd += 1
 print(f"редакторов: {len(eds)}; изменений от редакторов в общей копии: {total}; обновлено копий редакторов: {upd}")
