@@ -1275,6 +1275,7 @@ function taskCard(c){
     ${adviceHtml(c)}
     <div class="actions"><button class="btn primary small" data-open="${c.id}" data-focus="1" type="button">✓ Записать касание</button>
       <span class="lbl">Перенести:</span>
+      <button class="btn small" data-move="${c.id}" data-d="0" type="button">Сегодня</button>
       <button class="btn small" data-move="${c.id}" data-d="1" type="button">+1 день</button>
       <button class="btn small" data-move="${c.id}" data-d="3" type="button">+3</button>
       <button class="btn small" data-move="${c.id}" data-d="7" type="button">+неделя</button>${meetBtn(c)}</div>
