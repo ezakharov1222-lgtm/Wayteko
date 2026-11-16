@@ -1,1 +1,1 @@
-{"report":"evening","date":"2026-11-15","time_msk":"18:59","sent":true,"attachment":false,"b64_chars":47700,"tool":"mcp__Gmail__send_message","error":"attachment rejected: base64 decoding failed; file reference not available"}
+{"report":"evening","date":"2026-11-16","time_msk":"19:08","sent":true,"attachment":true,"b64_chars":48368,"tool":"mcp__Gmail__send_message","error":null}
