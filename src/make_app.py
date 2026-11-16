@@ -791,7 +791,13 @@ loaded = true;
 if(stored===null){ render(); view.innerHTML = `<div class="empty">Память для приложения недоступна. Откройте WAYTEKO с главного экрана или выключите «Частный доступ» в Safari.</div>`; }
 else { clients = Array.isArray(stored) ? stored : []; if(!getPw()) syncState.needPw = true; render(); }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(_){}
-if("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+if("serviceWorker" in navigator) window.addEventListener("load", () => {
+  const had = !!navigator.serviceWorker.controller; let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if(had && !reloaded){ reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register("./sw.js", {updateViaCache: "none"}).then(reg => {
+    document.addEventListener("visibilitychange", () => { if(!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
+});
 document.addEventListener("visibilitychange", () => {
   if(document.hidden){ if(isGuest()) beat("off"); return; }
   if(!openId) render(); syncNow(); if(isGuest()) beat("on"); else { checkGuest(); syncShared(); syncAdvice(); } });
@@ -831,14 +837,14 @@ manifest = {"name": "WAYTEKO CRM", "short_name": "WAYTEKO", "description": "CRM 
                       {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
 json.dump(manifest, open(f"{OUT}/manifest.webmanifest", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v15";
+open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v16";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
   if (e.request.method !== "GET" || u.origin !== location.origin || u.pathname.includes("/data/")) return;
-  e.respondWith(fetch(e.request).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
+  e.respondWith(fetch(e.request, {cache: "no-cache"}).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
     .catch(() => caches.match(e.request).then(r => r || caches.match("./index.html"))));
 });
 """)
