@@ -131,7 +131,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .card.ot-high{border-left-color:#f59e0b}
 .ot-done{opacity:.7}
 .advice{background:#fff6e0;border:1px solid #f1d38a;border-radius:8px;padding:7px 10px;font-size:14px;line-height:1.35;color:#3a2a00;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:calc(2*1.35em + 14px)}
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:calc(3*1.35em + 16px)}
 .advice .ai{font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#a06a00;margin-right:6px}
 .advice.stale{background:var(--surface-2);border-color:var(--line);color:var(--muted)}.advice.stale .ai{color:var(--muted)}
 .panel .advice{-webkit-line-clamp:4;max-height:none}
@@ -329,8 +329,8 @@ function adviceHtml(c){
   if(!ACTIVE.includes(c.temp)) return "";
   const a = ADVICE[c.id];
   if(!a || !a.t) return "";
-  if(a.k !== touchKey(c)) return `<div class="advice stale"><span class="ai">💡 Совет</span>Новое касание учтено — свежий совет появится в течение часа</div>`;
-  return `<div class="advice"><span class="ai">${esc(ADV_ROLE[a.r] || "💡 Совет")}</span>${esc(a.t)}</div>`;
+  if(a.k !== touchKey(c)) return `<div class="advice stale"><span class="ai">💡 Совет AI</span>Новое касание учтено — свежий совет появится в течение часа</div>`;
+  return `<div class="advice"><span class="ai">💡 Совет AI</span>${esc(a.t)}</div>`;
 }
 
 // ---------- встречи
