@@ -102,7 +102,7 @@ rep('<div class="brand"><h1>WAYTEKO</h1><div class="date" id="todayLbl"></div></
 rep('<button role="tab" data-tab="board" aria-selected="false">Воронка</button>',
     '<button role="tab" data-tab="tasks" aria-selected="false">Задачи<span id="tasksBadge" class="tbadge"></span></button>\n    <button role="tab" data-tab="board" aria-selected="false">Воронка</button>')
 rep('  else if(tab==="board") view.innerHTML = renderBoard();', '  else if(tab==="tasks") renderTasks();\n  else if(tab==="board") view.innerHTML = renderBoard();')
-rep('view.innerHTML = renderToday(over, today, week);', 'view.innerHTML = urgentBanner() + renderToday(over, today, week);')
+rep('const TODAY_PRE = () => "";', 'const TODAY_PRE = () => urgentBanner();')
 rep('<nav class="tabs" role="tablist" id="tabs">', '<div id="banner" hidden></div>\n  <nav class="tabs" role="tablist" id="tabs">')
 
 # ---------- хранение на устройстве
@@ -838,7 +838,7 @@ manifest = {"name": "WAYTEKO CRM", "short_name": "WAYTEKO", "description": "CRM 
                       {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
 json.dump(manifest, open(f"{OUT}/manifest.webmanifest", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v17";
+open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v18";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });

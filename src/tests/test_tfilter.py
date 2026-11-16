@@ -1,0 +1,17 @@
+import sys
+exec(open(sys.argv[3]).read().split("with sync_playwright() as p:")[0].replace("localhost:8770","localhost:8766"))
+with sync_playwright() as p:
+    b = p.chromium.launch(); A = b.new_context(viewport={"width": 1100, "height": 900}).new_page(); A.on("pageerror", lambda e: errs.append(str(e)))
+    A.route("https://api.github.com/**", gh); A.route("https://ntfy.sh/**", lambda r: r.fulfill(status=200, body="", headers=H))
+    login(A, "", PW)
+    if A.locator("#nameForm").count(): A.fill("#uname", "Евгений Захаров"); A.click("#nameForm button[type=submit]"); A.wait_for_timeout(300)
+    A.click("#tabs button[data-tab=today]"); A.wait_for_timeout(300)
+    cnt = lambda: len(A.locator("#todayList .card").all())
+    print("1 строка фильтра в «Сегодня»:", A.locator("#view .filters").inner_text().replace("\n"," | "), "| карточек:", cnt())
+    A.locator("#tq").type("СПЕЦ", delay=50); A.wait_for_timeout(300)
+    print("3 поиск «СПЕЦ»: карточек", cnt(), "| фокус остался в поиске:", A.evaluate("document.activeElement.id"), "| значение:", A.input_value("#tq"))
+    A.screenshot(path=OUT + "/shots/today_filter.png", clip={"x":0,"y":0,"width":1100,"height":760})
+    A.click("#tabs button[data-tab=all]"); A.click("#tabs button[data-tab=today]"); A.wait_for_timeout(200)
+    print("4 поиск сохранился при возврате:", A.input_value("#tq"))
+    b.close()
+print("ERRORS:", errs or "нет")

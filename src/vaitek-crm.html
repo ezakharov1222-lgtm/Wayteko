@@ -287,7 +287,7 @@ function render(){
     <button class="stat" data-go="board" type="button"><b>${clients.filter(c=>c.temp==="hot").length}</b><span>Горячих</span></button>
     <button class="stat" data-go="board" type="button"><b>${clients.filter(c=>c.temp==="dealer").length} / ${GOAL}</b><span>Дилеров</span></button>`;
   if(!loaded){ view.innerHTML = `<div class="empty">Загружаю клиентов…</div>`; return; }
-  if(tab==="today") view.innerHTML = renderToday(over, today, week);
+  if(tab==="today") renderTodayTab(over, today, week);
   else if(tab==="otasks") view.innerHTML = db ? renderOnlineTasks() : "";
   else if(tab==="board") view.innerHTML = renderBoard();
   else if(tab==="all") renderAll();
@@ -400,10 +400,20 @@ function taskCard(c){
       <button class="btn small" data-move="${c.id}" data-d="7" type="button">+неделя</button>${meetBtn(c)}</div>
   </article>`;
 }
-function renderToday(over, today, week){
+// ---------- «Сегодня»: строка поиска
+const TODAY_PRE = () => "";
+let tQuery = "";
+const clientMatch = (c, q, ft) => (!ft || (ft==="work" ? !["branch","refused"].includes(c.temp) : c.temp===ft)) && (!q || [c.name,c.fio,c.region,c.phone,c.email,c.inn].join(" ").toLowerCase().includes(q));
+function renderTodayTab(over, today, week){
+  if(!view.querySelector("#tq")) view.innerHTML = `<div class="filters"><input id="tq" type="search" placeholder="Поиск: компания, ФИО, город, телефон" aria-label="Поиск" value="${esc(tQuery)}"></div><div id="todayPre"></div><div id="todayList"></div>`;
+  view.querySelector("#todayPre").innerHTML = TODAY_PRE();
+  const q = tQuery.trim().toLowerCase(), f = c => clientMatch(c, q, "");
+  view.querySelector("#todayList").innerHTML = (q ? `<p class="muted" style="margin:0 0 6px">Показаны только подходящие под поиск.</p>` : "") + renderToday(over.filter(f), today.filter(f), week.filter(f), f);
+}
+function renderToday(over, today, week, f = () => true){
   over.sort(byNext); today.sort(byNext); week.sort(byNext);
-  const noDate = clients.filter(c => ACTIVE.includes(c.temp) && !c.next);
-  const warn = upcomingMeets(3), soon = upcomingMeets(30);
+  const noDate = clients.filter(c => ACTIVE.includes(c.temp) && !c.next && f(c));
+  const warn = upcomingMeets(3).filter(x => f(x.c)), soon = upcomingMeets(30).filter(x => f(x.c));
   let h = "";
   if(warn.length) h += `<div class="banner"><b>🤝 Скоро встреча</b>${warn.map(x => `<span>${esc(x.c.name)} — ${esc(dayWord(x.dd))}${x.m.t?", в "+esc(x.m.t):""}</span>`).join("")}</div>`;
   h += `<h2 class="sec">🤝 Встречи <span class="n">${soon.length}</span></h2>` + (soon.length ? `<div class="list">${soon.map(meetCard).join("")}</div>` : `<div class="empty">Встреч на ближайший месяц нет. Откройте клиента и назначьте встречу.</div>`);
@@ -561,6 +571,7 @@ function keepDraft(){ if(!openId||openId==="new") return; const g = id => overla
   const pl = overlay.querySelector("#t_plan"); const c = clients.find(x=>x.id===openId); if(pl&&c) pl.placeholder = recFor(c, g("#t_text")) || "Что сделать"; }
 document.addEventListener("input", e => {
   if(e.target.id==="q"){ query = e.target.value; renderAll(); return; }
+  if(e.target.id==="tq"){ tQuery = e.target.value; render(); return; }
   if(e.target.closest("#touchForm")) keepDraft();
   if(e.target.closest("#editForm")) editing = true;
 });
