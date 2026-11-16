@@ -825,6 +825,7 @@ rep('''  if(e.target.id==="meetForm"){''', '''  if(e.target.id==="ghForm"){ cons
   if(e.target.id==="pwForm"){ const p = (document.querySelector("#pw")?.value || "").trim(); if(p) await syncNow(p, true); return; }
   if(e.target.id==="meetForm"){''')
 exec(open(f"{SP}/roles_patch.py", encoding="utf-8").read())  # имя при входе, ответственные, доступ «Редактор»
+exec(open(f"{SP}/presence_patch.py", encoding="utf-8").read())  # «в сети» и уведомления о входе
 assert "db.collection" not in s and "window.claude" not in s
 os.makedirs(OUT, exist_ok=True)
 open(f"{OUT}/index.html", "w", encoding="utf-8").write(s)
@@ -837,7 +838,7 @@ manifest = {"name": "WAYTEKO CRM", "short_name": "WAYTEKO", "description": "CRM 
                       {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
 json.dump(manifest, open(f"{OUT}/manifest.webmanifest", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v16";
+open(f"{OUT}/sw.js", "w").write("""const CACHE = "wayteko-v17";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
