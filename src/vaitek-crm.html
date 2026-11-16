@@ -504,7 +504,7 @@ function renderPanel(focus){
   if(focus==="meet") overlay.querySelector("#meetForm")?.scrollIntoView({block:"start"});
   else if(focus) overlay.querySelector("#t_text").focus();
 }
-function moveBtns(id){ return [["Завтра",1],["+3",3],["+неделя",7]].map(([l,d]) => `<button class="btn small" data-move="${id}" data-d="${d}" type="button">${l}</button>`).join(""); }
+function moveBtns(id){ return [["Сегодня",0],["Завтра",1],["+3",3],["+неделя",7]].map(([l,d]) => `<button class="btn small" data-move="${id}" data-d="${d}" type="button">${l}</button>`).join(""); }
 function kvRow(k,v,copy){ if(v==null||v==="") return ""; return `<dt>${k}</dt><dd>${esc(v)}</dd><dd>${copy?`<button class="btn small" data-copy="${esc(v)}" type="button">Копировать</button>`:""}</dd>`; }
 function fields(c){
   const f = (id,l,v,t="text") => `<label class="f">${l}<input id="f_${id}" type="${t}" value="${esc(v??"")}"></label>`;
@@ -546,7 +546,9 @@ document.addEventListener("click", async e => {
   if(t.dataset.temp){ const c = clients.find(x=>x.id===t.dataset.id); if(!c||c.temp===t.dataset.temp) return;
     if(await save(c.id,{temp:t.dataset.temp})) toast(`${c.name}: ${TEMPS[t.dataset.temp].l}`); return; }
   if(t.dataset.move){ const c = clients.find(x=>x.id===t.dataset.move); const base = c.next && c.next>todayIso() ? c.next : todayIso();
-    const n = addDays(base==="" ? null : base, +t.dataset.d); if(await save(c.id,{next:n})) toast(`Созвон перенесён на ${fmtW(n)}`); return; }
+    const n = +t.dataset.d === 0 ? todayIso() : addDays(base==="" ? null : base, +t.dataset.d);
+    if(n === c.next){ toast(n === todayIso() ? "Созвон уже на сегодня" : `Созвон уже на ${fmtW(n)}`); return; }
+    if(await save(c.id,{next:n})) toast(n === todayIso() ? "Созвон перенесён на сегодня" : `Созвон перенесён на ${fmtW(n)}`); return; }
   if(t.dataset.setnext){ overlay.querySelector("#t_next").value = t.dataset.setnext; keepDraft(); return; }
   if(t.dataset.copy){ try{ await navigator.clipboard.writeText(t.dataset.copy); toast("Скопировано"); }catch(_){ toast(t.dataset.copy); } return; }
   if(t.hasAttribute("data-askdel")){ confirmDel = true; renderPanel(); return; }
