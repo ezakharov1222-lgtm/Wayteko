@@ -148,6 +148,16 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .card.ot-urgent{border-left-color:#e5252a;background:linear-gradient(90deg,rgba(229,37,42,.16),var(--surface) 65%)}
 .card.ot-high{border-left-color:#f59e0b}
 .ot-done{opacity:.7}
+.cbadge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;background:#e9e3ff;color:#4b2fb3;border:1px solid #c9bcff;white-space:nowrap}
+.btn.ctr{font-size:13px;padding:6px 11px;border-style:dashed;color:var(--muted)}
+.btn.ctr[aria-pressed="true"]{border-style:solid;background:#e9e3ff;border-color:#9b86f0;color:#4b2fb3}
+.cbadge.signed{background:#dcf1df;color:#1f6a2e;border-color:#9fd3a9}
+.btn.ctr.signed[aria-pressed="true"]{background:#dcf1df;border-color:#4fa863;color:#1f6a2e}
+.btn.ctr[aria-pressed="false"].dim{opacity:.5}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .cbadge,:root:not([data-theme="light"]) .btn.ctr[aria-pressed="true"]{background:#2c2350;color:#c9bcff;border-color:#5b47b0}
+  :root:not([data-theme="light"]) .cbadge.signed,:root:not([data-theme="light"]) .btn.ctr.signed[aria-pressed="true"]{background:#1d3a23;color:#7fd18c;border-color:#3f7a4c}}
+:root[data-theme="dark"] .cbadge,:root[data-theme="dark"] .btn.ctr[aria-pressed="true"]{background:#2c2350;color:#c9bcff;border-color:#5b47b0}
+:root[data-theme="dark"] .cbadge.signed,:root[data-theme="dark"] .btn.ctr.signed[aria-pressed="true"]{background:#1d3a23;color:#7fd18c;border-color:#3f7a4c}
 .advice{background:#fff6e0;border:1px solid #f1d38a;border-radius:8px;padding:7px 10px;font-size:14px;line-height:1.35;color:#3a2a00;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:calc(3*1.35em + 16px)}
 .advice .ai{font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#a06a00;margin-right:6px}
@@ -307,6 +317,7 @@ function attrib(prev, patch){
     else if(patch.meets.some(m => m.del && !old.get(m.id)?.del)) acts.push("удалил встречу");
     else acts.push("отметил встречу"); }
   if(patch.temp && patch.temp !== prev.temp) acts.push("статус: " + (TEMPS[patch.temp]?.l || patch.temp));
+  if("contract" in patch && ctrState(patch) !== ctrState(prev)) acts.push(ctrState(patch) ? "отметил «" + CTR[ctrState(patch)].l + "»" : "снял «" + (CTR[ctrState(prev)] || CTR.work).l + "»");
   if(patch.next && patch.next !== prev.next && !patch.touches) acts.push("созвон перенесён на " + fmt(patch.next));
   if(!acts.length) acts.push("изменил данные клиента");
   out.hist = [...(prev.hist||[]), {at, by: who, a: acts.join(", ")}].slice(-HIST_MAX);
@@ -323,6 +334,10 @@ function mergeClient(a, b){ // объединение двух версий ка
   const out = {...base, touches}; if(mm.size) out.meets = [...mm.values()]; if(hist.length) out.hist = hist;
   return out;
 }
+// ---------- стадия договора: «в работе» или «подписан» (взаимоисключающие)
+const CTR = {work: {l: "Договор в работе", i: "📄", hint: "протокол разногласий, изучение или подписание договора"}, signed: {l: "Договор подписан", i: "✍️", hint: "договор подписан"}};
+const ctrState = c => !c ? "" : c.contract === true || c.contract === "work" ? "work" : c.contract === "signed" ? "signed" : "";
+const ctrBadge = c => { const st = ctrState(c); return st ? `<span class="cbadge ${st === "signed" ? "signed" : ""}" title="${CTR[st].hint}">${CTR[st].i} ${CTR[st].l}</span>` : ""; };
 const byTag = n => n ? ` · 👤 ${esc(n)}` : "";
 const fmtAt = v => { if(!v) return ""; const d = new Date(v); return isNaN(d) ? "" : `${fmt(iso(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
@@ -1325,7 +1340,7 @@ function taskCard(c){
   return `<article class="card ${s.k==="over"?"over":s.k==="today"?"today":""}">
     <div class="row1"><span class="pill ${s.k}">${esc(s.txt)}</span>
       <button class="name" data-open="${c.id}" type="button">${esc(c.name)}</button>
-      <span class="temp ${TEMPS[c.temp]?.c||""}">${esc(TEMPS[c.temp]?.l||"")}</span></div>
+      <span class="temp ${TEMPS[c.temp]?.c||""}">${esc(TEMPS[c.temp]?.l||"")}</span>${ctrBadge(c)}</div>
     <div class="meta">${c.phone?`<span>📞 ${esc(c.phone)}</span>`:""}${c.fio?`<span>${esc(c.fio)}</span>`:""}${c.region?`<span>${esc(c.region)}</span>`:""}</div>
     ${lt?`<div class="last"><small>Было${lt.d?" "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
     ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
@@ -1365,7 +1380,7 @@ function renderToday(over, today, week, f = () => true){
 function mini(c){
   const s = callState(c);
   return `<button class="mini ${s.k==="over"?"over":s.k==="today"?"today":""}" data-open="${c.id}" type="button">
-    <strong>${esc(c.name)}</strong><span><span class="pill ${s.k}">${esc(s.txt||"")}</span></span>
+    <strong>${esc(c.name)}</strong><span><span class="pill ${s.k}">${esc(s.txt||"")}</span> ${ctrBadge(c)}</span>
     <span class="muted" style="font-size:12px">${esc((lastTouch(c)?.t||"").slice(0,90))}</span></button>`;
 }
 function renderBoard(){
@@ -1420,7 +1435,9 @@ function renderPanel(focus){
   overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="${esc(c.name)}">
     <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div>${c.createdBy||c.updatedBy?`<div class="meta">${c.createdBy?`Завёл: ${esc(c.createdBy)}`:""}${c.updatedBy?`${c.createdBy?" · ":""}Изменил: ${esc(c.updatedBy)}${c.updated?", "+esc(fmtAt(c.updated)):""}`:""}</div>`:""}</div>
       <button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
-    <div class="box"><h4>Статус клиента</h4><div class="temps">${Object.entries(TEMPS).map(([k,v]) => `<button class="${v.c}" data-temp="${k}" data-id="${c.id}" aria-pressed="${c.temp===k}" type="button">${v.l}</button>`).join("")}</div></div>
+    <div class="box"><h4>Статус клиента</h4><div class="temps">${Object.entries(TEMPS).map(([k,v]) => `<button class="${v.c}" data-temp="${k}" data-id="${c.id}" aria-pressed="${c.temp===k}" type="button">${v.l}</button>`).join("")}</div>
+      <div class="actions">${Object.entries(CTR).map(([k,v]) => `<button class="btn ctr ${k === "signed" ? "signed" : ""} ${ctrState(c) && ctrState(c) !== k ? "dim" : ""}" data-contract="${c.id}" data-cst="${k}" aria-pressed="${ctrState(c) === k}" type="button" title="${v.hint}">${v.i} ${v.l}${ctrState(c) === k ? " ✓" : ""}</button>`).join("")}
+        <span class="lbl">${ctrState(c) ? CTR[ctrState(c)].hint : "отметьте стадию договора"}</span></div></div>
     <div class="box"><h4>Созвон</h4>
       <div class="row1" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${s.k!=="arch"?`<span class="pill ${s.k}">${esc(s.txt)}</span>`:""}<span>${c.next?fmtW(c.next):"дата не назначена"}</span></div>
       ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
@@ -1524,6 +1541,9 @@ document.addEventListener("click", async e => {
   if(t.dataset.act==="imp-cancel"){ pendingImport = null; renderPanel(); return; }
   if(t.dataset.ics){ const c = clients.find(x => x.id===t.dataset.ics); if(c) exportIcs(c); return; }
   if(t.dataset.ft!==undefined && t.classList.contains("chip")){ filterTemp = t.dataset.ft; renderAll(); return; }
+  if(t.dataset.contract){ const c = clients.find(x=>x.id===t.dataset.contract); if(!c) return;
+    const want = t.dataset.cst, cur = ctrState(c), next = cur === want ? "" : want;
+    if(await save(c.id,{contract: next})) toast(next ? `${c.name}: ${CTR[next].l.toLowerCase()}` : `${c.name}: отметка «${CTR[cur].l}» снята`); return; }
   if(t.dataset.temp){ const c = clients.find(x=>x.id===t.dataset.id); if(!c||c.temp===t.dataset.temp) return;
     if(await save(c.id,{temp:t.dataset.temp})) toast(`${c.name}: ${TEMPS[t.dataset.temp].l}`); return; }
   if(t.dataset.move){ const c = clients.find(x=>x.id===t.dataset.move); const base = c.next && c.next>todayIso() ? c.next : todayIso();
