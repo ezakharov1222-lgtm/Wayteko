@@ -31,3 +31,28 @@ jobs:
           path: ${{ runner.temp }}/backup/
           retention-days: 90
           if-no-files-found: error
+      - name: Email encrypted backup
+        env:
+          WAYTEKO_SMTP_PASSWORD: ${{ secrets.WAYTEKO_SMTP_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import os, ssl, smtplib
+          from pathlib import Path
+          from email.message import EmailMessage
+          try:
+              sender = "e.zakharov1222@gmail.com"
+              msg = EmailMessage()
+              msg["From"] = sender
+              msg["To"] = "zaharov@wayteko.ru, e.zakharov1222@gmail.com"
+              msg["Subject"] = "WAYTEKO — Зашифрованная резервная копия"
+              msg.set_content("Зашифрованная резервная копия WAYTEKO во вложениях.")
+              for p in sorted(Path(os.environ["RUNNER_TEMP"], "backup").glob("*.json")):
+                  msg.add_attachment(p.read_bytes(), maintype="application", subtype="json", filename=p.name)
+              with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context(), timeout=60) as smtp:
+                  smtp.login(sender, os.environ["WAYTEKO_SMTP_PASSWORD"].replace(" ", ""))
+                  if smtp.send_message(msg):
+                      raise RuntimeError("Recipient refused")
+              print("Backup sent")
+          except Exception:
+              raise SystemExit("Backup delivery failed")
+          PY
