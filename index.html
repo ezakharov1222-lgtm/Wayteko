@@ -1489,6 +1489,16 @@ function renderPanel(focus){
     overlay.querySelector("#f_name").focus(); return;
   }
   const s = callState(c), lt = lastTouch(c), touches = (c.touches||[]).filter(t=>t&&t.t);
+  if(tab==="analysis" && isOwner()){
+    overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="${esc(c.name)}">
+      <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${esc(c.region||"")}</div></div><button class="btn ghost" data-close type="button" aria-label="Закрыть">✕</button></div>
+      <div class="box"><h4>Статус клиента</h4><div class="temps">${Object.entries(TEMPS).map(([k,v])=>`<button class="${v.c}" data-temp="${k}" data-id="${esc(c.id)}" aria-pressed="${c.temp===k}" type="button">${v.l}</button>`).join("")}</div><div class="meta">${esc(ctrState(c)?CTR[ctrState(c)].l:"Стадия договора не отмечена")}</div></div>
+      <div class="box"><h4>Аналитика и рекомендации</h4>${adviceHtml(c,true)||'<div class="muted">Анализ недоступен для этого статуса.</div>'}${c.plan?`<div class="rec"><b>План:</b> ${esc(c.plan)}</div>`:""}<div class="meta">Следующий созвон: ${c.next?esc(fmtW(c.next)):"не назначен"}</div></div>
+      <div class="box"><h4>Контакты</h4><dl class="kv">${kvRow("ФИО",c.fio)}${kvRow("Должность",c.position)}${kvRow("Телефон",c.phone,true)}${kvRow("Email",c.email,true)}${kvRow("ИНН",c.inn,true)}${kvRow("Канал",c.channel)}</dl></div>
+      <div class="box"><h4>История касаний (${touches.length})</h4>${c.intro?`<div class="muted"><b>Знакомство:</b> ${esc(c.intro)}</div>`:""}<div class="hist">${touches.slice().reverse().map((t,i)=>`<div class="it ${i===0?"lastone":""}"><time>${t.d?esc(fmt(t.d)):"—"}</time><div>${esc(t.t)}${t.by?`<div class="muted">👤 ${esc(t.by)}</div>`:""}</div></div>`).join("")||'<div class="muted">Касаний ещё нет.</div>'}</div></div>
+    </aside>`;
+    return;
+  }
   const nextDraft = draft[c.id] || {};
   overlay.innerHTML = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-label="${esc(c.name)}">
     <div class="head"><div><h2>${esc(c.name)}</h2><div class="meta">${c.region?esc(c.region):""}${c.status?" · "+esc(c.status):""}</div>${c.createdBy||c.updatedBy?`<div class="meta">${c.createdBy?`Завёл: ${esc(c.createdBy)}`:""}${c.updatedBy?`${c.createdBy?" · ":""}Изменил: ${esc(c.updatedBy)}${c.updated?", "+esc(fmtAt(c.updated)):""}`:""}</div>`:""}</div>
