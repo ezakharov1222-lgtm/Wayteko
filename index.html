@@ -182,7 +182,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .gpill.view{background:var(--steel-soft);color:var(--steel)}
 .guest #addBtn,.guest #addBtn2,.guest [data-move],.guest [data-focus],.guest [data-meet-open]:not(.meet-on),.guest [data-meet-done],.guest [data-meet-del],
 .guest #touchForm,.guest #meetForm,.guest #editDet,.guest .box:has(> [data-askdel]),.guest .actions .lbl,.guest .actions [data-temp]{display:none!important}
-.guest #tabs [data-tab="tasks"]{display:none!important}
+.guest #tabs [data-tab="tasks"],.guest #tabs [data-tab="analysis"],.editor #tabs [data-tab="analysis"]{display:none!important}
 .tday{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;font-size:16px}
 .trow{display:flex;align-items:flex-start;gap:10px}
 .tbody{flex:1;min-width:0;display:grid;gap:2px}
@@ -238,6 +238,7 @@ nav.tabs button[aria-selected="true"] .tbadge{color:var(--surface)}
     <button role="tab" data-tab="board" aria-selected="false">Воронка</button>
     <button role="tab" data-tab="all" aria-selected="false">Все клиенты</button>
     <button role="tab" data-tab="arch" aria-selected="false">Филиал и отказы</button>
+    <button role="tab" data-tab="analysis" aria-selected="false">Анализ</button>
   </nav>
   <main id="view"><div class="empty">Загружаю клиентов…</div></main>
 </div>
@@ -640,7 +641,7 @@ function taskUpdate(id, fn){
 const ROLEKEY = "wayteko.role.v1", GUESTKEY = "wayteko.guests.v2", OLDGUESTKEY = "wayteko.guest.v1", GPATH = "data/app.guest.enc.json", NTFY = "https://ntfy.sh/", MAXG = 4;
 const GUEST_MSG = "Гостевой доступ: только просмотр";
 const APP_URL = "https://ezakharov1222-lgtm.github.io/Wayteko/";
-const TABNAME = {today:"Сегодня", board:"Воронка", all:"Все клиенты", arch:"Филиал и отказы", data:"Данные"};
+const TABNAME = {today:"Сегодня", board:"Воронка", all:"Все клиенты", arch:"Филиал и отказы", analysis:"Анализ", data:"Данные"};
 function getRole(){ try { return localStorage.getItem(ROLEKEY) || ""; } catch(e){ return ""; } }
 function setRole(r){ try { r ? localStorage.setItem(ROLEKEY, r) : localStorage.removeItem(ROLEKEY); } catch(e){} applyRole(); }
 function isGuest(){ return getRole() === "guest"; }
@@ -1219,6 +1220,7 @@ function welcomeHtml(){
 
 // ---------- рендер
 function render(){
+  if(tab==="analysis" && !isOwner()) tab="today";
   { const ls = getMeta().lastSync; $("#todayLbl").textContent = "Сегодня " + fmtW(todayIso()) + (ls ? " · база от " + fmtStamp(ls) : ""); renderGuestPill(); renderTasksBadge(); }
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab===tab)));
   const act = clients.filter(c => !["branch","refused"].includes(c.temp));
@@ -1240,6 +1242,7 @@ function render(){
   document.documentElement.classList.toggle("locked", !!syncState.needPw || needName);
   if(syncState.needPw){ bn.hidden = true; if(!view.querySelector("#pwForm")) view.innerHTML = pwHtml(); }
   else if(needName){ bn.hidden = true; if(!view.querySelector("#nameForm")) view.innerHTML = nameHtml(); }
+  else if(tab==="analysis") view.innerHTML = renderAnalysis();
   else if(!clients.length) view.innerHTML = welcomeHtml();
   else if(tab==="today") renderTodayTab(over, today, week);
   else if(tab==="otasks") view.innerHTML = db ? renderOnlineTasks() : "";
@@ -1283,11 +1286,11 @@ function touchKey(c){ const t = (c.touches||[]).filter(x => x && x.t); return t.
 function adviceHtml(c, expanded=false){
   if(!isOwner() || !ACTIVE.includes(c.temp)) return "";
   const a=ADVICE[c.id], d=a && a.analysis;
-  if(!a || a.k!==touchKey(c) || !d || !Number.isInteger(d.score) || d.score<0 || d.score>100) return '<div class="advice stale"><span class="ai">💡 Анализ ИИ</span>Ожидается обновлённый анализ</div>';
+  if(!a || a.k!==touchKey(c) || !d || !Number.isInteger(d.score) || d.score<0 || d.score>100) return '<div class="advice stale"><span class="ai">💡 Анализ клиента</span>Ожидается обновлённый анализ</div>';
   const score=String(d.score), tone=d.score>=75?'var(--green)':d.score>=45?'#b7791f':'var(--red)';
-  if(!expanded) return `<div class="advice analysis-v2"><span class="ai">💡 Анализ ИИ</span><b style="float:right;color:${tone}">${score}/100</b><div>${esc(a.t)}</div><div class="actions" style="justify-content:space-between"><small>${esc(d.trend)}</small><button class="btn small" data-open="${esc(c.id)}" type="button">Подробнее ›</button></div></div>`;
+  if(!expanded) return `<div class="advice analysis-v2"><span class="ai">💡 Анализ клиента</span><b style="float:right;color:${tone}">${score}/100</b><div>${esc(a.t)}</div><div class="actions" style="justify-content:space-between"><small>${esc(d.trend)}</small><button class="btn small" data-open="${esc(c.id)}" type="button">Подробнее ›</button></div></div>`;
   const fields=[["Текущая ситуация",d.situation],["Главное препятствие",d.obstacle],["Рекомендуемая тактика",d.step],["Цель звонка",d.goal],["Что спросить клиента",d.question],["Чего избегать",d.avoid],["Следующее касание",d.when]];
-  return `<div class="advice analysis-v2 full"><b>💡 Экспертный анализ ИИ</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Риск потери: ${esc(d.risk)}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Экспертная оценка, не статистическая вероятность сделки.</small></div>`;
+  return `<div class="advice analysis-v2 full"><b>💡 Анализ клиента</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Риск потери: ${esc(d.risk)}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Алгоритмическая оценка, не вероятность сделки.</small></div>`;
 }
 
 // ---------- встречи
@@ -1412,6 +1415,18 @@ function archCard(c){
       <button class="btn small t-hot" data-temp="hot" data-id="${c.id}" type="button">🔥</button>
       <button class="btn small t-warm" data-temp="warm" data-id="${c.id}" type="button">🌤 Тёплый</button>
       <button class="btn small t-cold" data-temp="cold" data-id="${c.id}" type="button">❄ Холодный</button></div></article>`;
+}
+function renderAnalysis(){
+  if(!isOwner()) return "";
+  const active=clients.filter(c=>ACTIVE.includes(c.temp));
+  const valid=c=>{const a=ADVICE[c.id];return a && a.k===touchKey(c) && Number.isInteger(a.analysis?.score) && a.analysis.score>=0 && a.analysis.score<=100;};
+  const ready=active.filter(valid);
+  const due=active.filter(c=>["over","today"].includes(callState(c).k)).sort(byNext);
+  const rows=[["Синхронизация редакторов","Каждый час, 08:07–22:07"],["Аналитика клиентов","Каждый час, 08:07–22:07"],["Утренний план","Будни, 08:40"],["Клиентский отчёт","Ежедневно, 18:43"],["Личные задачи","Ежедневно, 20:17"],["Резервное копирование","Воскресенье, 21:23 · хранение 90 дней"]];
+  return `<h2 class="sec">Анализ клиентов</h2><div class="box"><b>В работе: ${active.length} · Анализ готов: ${ready.length}</b><div class="meta">Ожидают анализа: ${active.length-ready.length} · Звонки сегодня и просроченные: ${due.length}</div><div class="actions"><button class="btn small" data-go="today" type="button">План звонков</button><button class="btn small" data-go="tasks" type="button">Личные задачи</button></div></div>
+  <h2 class="sec">Приоритетные звонки</h2>${due.length?'<div class="list">'+due.map(c=>`<article class="card"><button class="name" data-open="${esc(c.id)}" type="button">${esc(c.name)}</button><div class="meta">${esc(callState(c).txt||"")}</div>${adviceHtml(c)}</article>`).join("")+'</div>':'<div class="empty">Нет звонков на сегодня и просроченных.</div>'}
+  <h2 class="sec">Все клиенты в работе</h2><div class="list">${active.slice().sort((a,b)=>(valid(b)?ADVICE[b.id].analysis.score:-1)-(valid(a)?ADVICE[a.id].analysis.score:-1)).map(c=>`<article class="card"><button class="name" data-open="${esc(c.id)}" type="button">${esc(c.name)}</button>${adviceHtml(c)}</article>`).join("")}</div>
+  <h2 class="sec">Автоматизация и отчёты</h2><div class="box">${rows.map(([name,time])=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${name}</b><div class="meta">${time} МСК</div></div>`).join("")}<div class="meta">Расписание настроено. Статусы выполнения и файлы отчётов пока не отображаются. Почта отключена.</div></div>`;
 }
 function renderArch(){
   const br = clients.filter(c => c.temp==="branch").sort((a,b)=>a.name.localeCompare(b.name,"ru"));
