@@ -32,7 +32,12 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             python tools/merge_editors.py
-            git add -u -- data/
+            tmp=$(mktemp -d)
+            python tools/advice.py todo "$tmp/todo.json"
+            python tools/local_analysis.py "$tmp/todo.json" "$tmp/answers.json"
+            python tools/advice.py apply "$tmp/answers.json"
+            rm -rf "$tmp"
+            git add -- data/
             if git diff --cached --quiet; then exit 0; fi
             git commit -m "Merge editor snapshots"
             if git push origin HEAD:main; then exit 0; fi
