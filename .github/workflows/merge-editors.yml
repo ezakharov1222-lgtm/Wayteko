@@ -32,7 +32,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             python tools/merge_editors.py
-            git add -- data/app.enc.json 'data/e-*.enc.json'
+            git add -u -- data/
             if git diff --cached --quiet; then exit 0; fi
             git commit -m "Merge editor snapshots"
             if git push origin HEAD:main; then exit 0; fi
