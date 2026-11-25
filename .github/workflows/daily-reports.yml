@@ -30,3 +30,33 @@ jobs:
           path: ${{ runner.temp }}/reports/
           retention-days: 30
           if-no-files-found: error
+      - name: Send reports through Gmail
+        env:
+          WAYTEKO_PW: ${{ secrets.WAYTEKO_PW }}
+          WAYTEKO_SMTP_PASSWORD: ${{ secrets.WAYTEKO_SMTP_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import os, json, base64, hashlib, ssl, smtplib
+          from pathlib import Path
+          from email.message import EmailMessage
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          try:
+              sender = "e.zakharov1222@gmail.com"
+              with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context(), timeout=60) as smtp:
+                  smtp.login(sender, os.environ["WAYTEKO_SMTP_PASSWORD"].replace(" ", ""))
+                  for p in sorted(Path(os.environ["RUNNER_TEMP"], "reports").glob("*.enc.json")):
+                      d = json.loads(p.read_text())
+                      b = base64.b64decode
+                      k = hashlib.pbkdf2_hmac("sha256", os.environ["WAYTEKO_PW"].encode(), b(d["salt"]), d["iter"], 32)
+                      body = AESGCM(k).decrypt(b(d["iv"]), b(d["ct"]), None).decode()
+                      msg = EmailMessage()
+                      msg["From"] = sender
+                      msg["To"] = "zaharov@wayteko.ru, e.zakharov1222@gmail.com"
+                      msg["Subject"] = "WAYTEKO — " + {"morning":"План звонков","evening":"Отчёт по клиентам","tasks":"Отчёт по задачам"}[p.name.split("-")[0]]
+                      msg.set_content(body)
+                      if smtp.send_message(msg):
+                          raise RuntimeError("Recipient refused")
+              print("Reports sent")
+          except Exception:
+              raise SystemExit("Report delivery failed")
+          PY
