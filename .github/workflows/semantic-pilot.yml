@@ -1,0 +1,33 @@
+name: Semantic analysis pilot
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install local inference
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve > /tmp/ollama-pilot.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          ollama pull qwen2.5:3b
+      - name: Compare fictional negotiation histories
+        run: |
+          python - <<'PY'
+          from tools.semantic_analysis import analyze
+          def case(notes):
+              return {"status":"warm","touches":[{"d":f"2026-11-{i+1:02}","t":t} for i,t in enumerate(notes)]}
+          good = analyze(case(["Обсудили ассортимент","Клиент подтвердил согласование цен","Договор подписан обеими сторонами, клиент подтвердил заказ на следующую неделю"]),"2026-11-25")
+          bad = analyze(case(["Отправили предложение","Клиент сообщил, что условия не подходят","Клиент окончательно отказался от сотрудничества"]),"2026-11-25")
+          assert good["analysis"]["score"] > bad["analysis"]["score"] + 25
+          print("Synthetic comparison passed")
+          PY
