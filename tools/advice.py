@@ -13,6 +13,7 @@ APP, ADV = "data/app.enc.json", "data/advice.enc.json"
 ROLES = {"sales", "lawyer", "marketing", "finance", "logistics"}
 ACTIVE = {"hot", "warm", "cold", "dealer"}
 MAXLEN = 80
+# analysis: score (целое 0–100, экспертная оценка, не вероятность), trend, risk, situation, obstacle, step, goal, question, avoid, when (строки до 300 символов).
 pw = os.environ.get("WAYTEKO_PW") or sys.exit("нет WAYTEKO_PW")
 b, e = base64.b64decode, lambda x: base64.b64encode(x).decode()
 
@@ -50,7 +51,7 @@ if cmd == "todo":
         if not (c.get("touches") or c.get("intro")):
             continue
         a = items.get(c["id"])
-        if a and a.get("k") == tkey(c):
+        if a and a.get("k") == tkey(c) and a.get("analysis"):
             continue
         todo.append({"id": c["id"], "name": c.get("name"), "status": c.get("temp"), "region": c.get("region"),
                      "contact": c.get("fio"), "position": c.get("position"), "intro": c.get("intro"),
@@ -73,7 +74,11 @@ elif cmd == "apply":
             errs.append(f"{cid}: роль должна быть одной из {sorted(ROLES)}"); continue
         if not t or len(t) > MAXLEN:
             errs.append(f"{cid}: текст {len(t)} симв., нужно 1–{MAXLEN} — сократите"); continue
-        items[cid] = {"cid": cid, "r": r, "t": t, "k": tkey(c), "at": now}; done += 1
+        d = (v or {}).get("analysis")
+        fields = ("trend", "risk", "situation", "obstacle", "step", "goal", "question", "avoid", "when")
+        if not isinstance(d, dict) or type(d.get("score")) is not int or not 0 <= d["score"] <= 100 or any(not isinstance(d.get(f), str) or not d[f].strip() or len(d[f]) > 300 for f in fields):
+            errs.append(f"{cid}: требуется analysis: score 0–100 и поля {fields}"); continue
+        items[cid] = {"cid": cid, "r": r, "t": t, "k": tkey(c), "at": now, "analysis": {"score": d["score"], **{f: d[f].strip() for f in fields}}}; done += 1
     if done:
         adv["updated"] = now
         enc(adv, ADV)

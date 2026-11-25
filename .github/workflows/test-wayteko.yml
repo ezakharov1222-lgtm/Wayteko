@@ -1,0 +1,28 @@
+name: WAYTEKO safe tests
+on:
+  pull_request:
+  push:
+    branches: [ai-analysis-v2]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m compileall -q tools
+      - name: Test local analysis with synthetic records
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          from tools.local_analysis import analyze
+          today = dt.date(2026, 11, 25)
+          for c in [{}, {"touches":[{"d":"2026-11-20","t":"Test"}]}, {"next_call":"2026-11-01"}]:
+              a = analyze(c,today)
+              assert 0 <= a["analysis"]["score"] <= 100
+              assert len(a["t"]) <= 80
+              assert all(a["analysis"][k] for k in ("trend","risk","situation","obstacle","step","goal","question","avoid","when"))
+          PY

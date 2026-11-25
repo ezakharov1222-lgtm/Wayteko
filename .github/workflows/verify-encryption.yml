@@ -1,0 +1,38 @@
+name: WAYTEKO encryption verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install cryptography
+      - name: Verify encrypted database without writing
+        env:
+          WAYTEKO_PW: ${{ secrets.WAYTEKO_PW }}
+        run: |
+          python - <<'PY'
+          import os, json, hashlib, base64
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          try:
+              pw = os.environ["WAYTEKO_PW"]
+              assert pw
+              with open("data/app.enc.json") as f:
+                  box = json.load(f)
+              b = base64.b64decode
+              key = hashlib.pbkdf2_hmac("sha256", pw.encode(), b(box["salt"]), box["iter"], 32)
+              obj = json.loads(AESGCM(key).decrypt(b(box["iv"]), b(box["ct"]), None))
+              assert isinstance(obj.get("clients"), list)
+          except Exception:
+              raise SystemExit("Database verification failed") from None
+          print("Database verification successful")
+          PY
