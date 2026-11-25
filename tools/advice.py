@@ -36,6 +36,9 @@ def tkey(c):
     return f"{len(t)}|{t[-1].get('d', '') if t else ''}"
 
 
+def fingerprint(c):
+    return hashlib.sha256(json.dumps(c,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
 app = dec(APP)
 adv = dec(ADV) if os.path.exists(ADV) else {"updated": "", "items": {}}
 items = adv.setdefault("items", {})
@@ -51,13 +54,13 @@ if cmd == "todo":
         if not (c.get("touches") or c.get("intro")):
             continue
         a = items.get(c["id"])
-        if a and a.get("k") == tkey(c) and a.get("analysis"):
+        if a and a.get("source") == "qwen" and a.get("fingerprint") == fingerprint(c) and a.get("at","")[:10] == today and a.get("analysis"):
             continue
         todo.append({"id": c["id"], "name": c.get("name"), "status": c.get("temp"), "region": c.get("region"),
                      "contact": c.get("fio"), "position": c.get("position"), "intro": c.get("intro"),
                      "next_call": c.get("next"), "plan": c.get("plan"),
                      "touches": [x for x in (c.get("touches") or []) if x and x.get("t")],
-                     "meets": c.get("meets") or [], "previous_advice": (a or {}).get("t")})
+                     "meets": c.get("meets") or [], "contract": c.get("contract"), "previous_advice": (a or {}).get("t")})
     json.dump({"today": today, "clients": todo}, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"ждут нового совета: {len(todo)}")
 
@@ -78,11 +81,11 @@ elif cmd == "apply":
         fields = ("trend", "risk", "situation", "obstacle", "step", "goal", "question", "avoid", "when")
         if not isinstance(d, dict) or type(d.get("score")) is not int or not 0 <= d["score"] <= 100 or any(not isinstance(d.get(f), str) or not d[f].strip() or len(d[f]) > 300 for f in fields):
             errs.append(f"{cid}: требуется analysis: score 0–100 и поля {fields}"); continue
-        items[cid] = {"cid": cid, "r": r, "t": t, "k": tkey(c), "at": now, "analysis": {"score": d["score"], **{f: d[f].strip() for f in fields}}}; done += 1
+        items[cid] = {"cid": cid, "r": r, "t": t, "k": tkey(c), "at": now, "source": "qwen", "fingerprint": fingerprint(c), "analysis": {"score": d["score"], **{f: d[f].strip() for f in fields}}}; done += 1
     if done:
         adv["updated"] = now
         enc(adv, ADV)
-    print(f"записано советов: {done}" + (f"; ошибки ({len(errs)}):\n" + "\n".join(errs) if errs else ""))
+    print(f"записано советов: {done}" + (f"; ошибки ({len(errs)})" if errs else ""))
     sys.exit(1 if errs else 0)
 else:
     sys.exit("команда: todo | apply")
