@@ -1,0 +1,40 @@
+name: WAYTEKO editor synchronization
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 5-19 * * *'
+permissions:
+  contents: write
+concurrency:
+  group: wayteko-editor-sync
+  cancel-in-progress: false
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install cryptography
+      - name: Merge encrypted editor snapshots
+        env:
+          WAYTEKO_PW: ${{ secrets.WAYTEKO_PW }}
+        run: |
+          set -eu
+          test -n "$WAYTEKO_PW" || { echo "Missing repository secret WAYTEKO_PW"; exit 1; }
+          git config user.name "WAYTEKO bot"
+          git config user.email "bot@wayteko.local"
+          for attempt in 1 2; do
+            git fetch origin main
+            git reset --hard origin/main
+            python tools/merge_editors.py
+            git add -- data/app.enc.json 'data/e-*.enc.json'
+            if git diff --cached --quiet; then exit 0; fi
+            git commit -m "Merge editor snapshots"
+            if git push origin HEAD:main; then exit 0; fi
+          done
+          exit 1
