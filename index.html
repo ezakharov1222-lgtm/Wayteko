@@ -1283,6 +1283,18 @@ function renderOnlineTasks(){
 let ADVICE = {}; // id клиента -> {r: роль, t: текст, k: ключ последнего касания}
 const ADV_ROLE = {lawyer:"⚖️ Юрист", sales:"🤝 Продажи", marketing:"📣 Маркетинг", finance:"💰 Финансист", logistics:"🚚 Логист"};
 function touchKey(c){ const t = (c.touches||[]).filter(x => x && x.t); return t.length + "|" + (t.length ? (t[t.length-1].d || "") : ""); }
+function negotiationState(c){
+  const ts=(c.touches||[]).filter(x=>x&&x.t), last=ts[ts.length-1];
+  const x=String(last?.t||c.intro||"").toLowerCase();
+  const age=last?.d?diffDays(todayIso(),last.d):null;
+  if(/отказались|отказался|не заинтересован|прекращаем сотрудничество|не будем работать/.test(x)) return "🔴 Угроза срыва переговоров";
+  if(/не отвеч|не дозвон|недозвон|нет связи/.test(x)||callState(c).k==="over"||(Number.isFinite(age)&&age>30)) return "🟠 Требуется активизация";
+  if(/затягива|перенесли снова|повторно отлож/.test(x)) return "🟡 Переговоры затягиваются";
+  if(/жд[её]м|ожида|на рассмотрени|на согласовани|передал.*договор|договор.*передал|направил.*договор/.test(x)) return "🔵 Ожидание решения";
+  if(!/не подпис|не соглас|не подтверд|не оплат/.test(x)&&/подписали|подписан|согласовали|подтвердил|заказ получен|оплатил|встреча состоялась/.test(x)) return "🟢 Активное продвижение";
+  if(ts.length<=1) return "⚪ Первичный контакт";
+  return "⚪ Состояние требует уточнения";
+}
 function analysisTrend(c){
   const ts=(c.touches||[]).filter(x=>x&&x.t);
   if(ts.length<2) return "Динамика: менее двух касаний";
@@ -1318,7 +1330,7 @@ function adviceHtml(c, expanded=false){
   const score=String(d.score), tone=d.score>=75?'var(--green)':d.score>=45?'#b7791f':'var(--red)';
   if(!expanded) return `<div class="advice analysis-v2"><span class="ai">💡 Анализ клиента</span><b style="float:right;color:${tone}">${score}/100</b><div>${esc(a.t)}</div><div class="actions" style="justify-content:space-between"><small>${esc(d.trend)}</small><button class="btn small" data-open="${esc(c.id)}" type="button">Подробнее ›</button></div></div>`;
   const fields=[["Текущая ситуация",d.situation],["Главное препятствие",d.obstacle],["Рекомендуемая тактика",d.step],["Цель звонка",d.goal],["Что спросить клиента",d.question],["Чего избегать",d.avoid],["Следующее касание",d.when]];
-  return `<div class="advice analysis-v2 full"><b>💡 Анализ клиента</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Риск потери: ${esc(d.risk)}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Алгоритмическая оценка, не вероятность сделки.</small></div>`;
+  return `<div class="advice analysis-v2 full"><b>💡 Анализ клиента</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Состояние переговоров: ${esc(negotiationState(c))}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Алгоритмическая оценка, не вероятность сделки.</small></div>`;
 }
 
 // ---------- встречи
