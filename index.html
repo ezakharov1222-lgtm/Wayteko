@@ -1283,9 +1283,25 @@ function renderOnlineTasks(){
 let ADVICE = {}; // id клиента -> {r: роль, t: текст, k: ключ последнего касания}
 const ADV_ROLE = {lawyer:"⚖️ Юрист", sales:"🤝 Продажи", marketing:"📣 Маркетинг", finance:"💰 Финансист", logistics:"🚚 Логист"};
 function touchKey(c){ const t = (c.touches||[]).filter(x => x && x.t); return t.length + "|" + (t.length ? (t[t.length-1].d || "") : ""); }
+function analysisTrend(c){
+  const ts=(c.touches||[]).filter(x=>x&&x.t);
+  if(ts.length<2) return "Динамика: менее двух касаний";
+  const signal=t=>{
+    const x=String(t.t).toLowerCase();
+    const neg=/отказ|не интерес|не готов|не отвеч|не дозвон|недозвон|отлож|пауз|не подпис|не соглас|не получил|не заказ/.test(x);
+    const pos=/подписали|подписан|согласовали|согласован|подтвердил|получили заказ|заказ получен|оплатил|встреча состоялась/.test(x);
+    return neg===pos?null:pos?1:-1;
+  };
+  const a=signal(ts[ts.length-2]), b=signal(ts[ts.length-1]);
+  if(a!==null && b!==null && b>a) return "Положительная динамика по касаниям";
+  if(a!==null && b!==null && b<a) return "Отрицательная динамика по касаниям";
+  if(b===1) return "Последнее касание: признаки продвижения";
+  if(b===-1) return "Последнее касание: признаки затруднений";
+  return "Явное изменение не выявлено · касаний: "+ts.length;
+}
 function currentAnalysis(c){
   const saved=ADVICE[c.id];
-  if(saved && saved.k===touchKey(c) && Number.isInteger(saved.analysis?.score) && saved.analysis.score>=0 && saved.analysis.score<=100) return saved;
+  if(saved && saved.k===touchKey(c) && Number.isInteger(saved.analysis?.score) && saved.analysis.score>=0 && saved.analysis.score<=100) return {...saved,analysis:{...saved.analysis,trend:analysisTrend(c)}};
   const touches=(c.touches||[]).filter(x=>x&&x.t);
   const last=touches[touches.length-1], raw=last?.t||c.intro||"";
   if(!raw) return null;
@@ -1293,7 +1309,7 @@ function currentAnalysis(c){
   const stale=Number.isFinite(age)&&age>30;
   const score=Math.max(0,Math.min(100,30+Math.min(touches.length,5)*6-(late?15:0)-(stale?15:0)));
   const step=c.plan||recFor(c)||"Уточнить текущий статус и согласовать следующий шаг.";
-  return {k:touchKey(c),t:step,analysis:{score,trend:"Недостаточно данных для оценки динамики",risk:late||stale?"Повышенный":"Не определён",situation:String(raw).slice(0,300),obstacle:late?"Срок звонка пропущен.":"Причина задержки не подтверждена.",step,goal:"Согласовать конкретный следующий шаг.",question:"Что необходимо для следующего решения?",avoid:"Не считать интерес подтверждённым без ответа клиента.",when:late?"Сегодня":c.next?fmtW(c.next):"Согласовать дату"}};
+  return {k:touchKey(c),t:step,analysis:{score,trend:analysisTrend(c),risk:late||stale?"Повышенный":"Не определён",situation:String(raw).slice(0,300),obstacle:late?"Срок звонка пропущен.":"Причина задержки не подтверждена.",step,goal:"Согласовать конкретный следующий шаг.",question:"Что необходимо для следующего решения?",avoid:"Не считать интерес подтверждённым без ответа клиента.",when:late?"Сегодня":c.next?fmtW(c.next):"Согласовать дату"}};
 }
 function adviceHtml(c, expanded=false){
   if(!isOwner() || !ACTIVE.includes(c.temp)) return "";
