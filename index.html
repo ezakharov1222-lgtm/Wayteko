@@ -163,6 +163,7 @@ details summary{cursor:pointer;font-weight:600;color:var(--steel)}
 .advice .ai{font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#a06a00;margin-right:6px}
 .advice.stale{background:var(--surface-2);border-color:var(--line);color:var(--muted)}.advice.stale .ai{color:var(--muted)}
 .panel .advice{-webkit-line-clamp:4;max-height:none}
+.advice.analysis-v2{display:block;max-height:none;overflow:visible;-webkit-line-clamp:unset}.advice.analysis-v2.full{display:grid;gap:10px;padding:12px}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .advice:not(.stale){background:#3a2d0c;border-color:#6b5317;color:#f5e3b5}:root:not([data-theme="light"]) .advice:not(.stale) .ai{color:#f0b44c}}
 :root[data-theme="dark"] .advice:not(.stale){background:#3a2d0c;border-color:#6b5317;color:#f5e3b5}
 
@@ -1279,12 +1280,14 @@ function renderOnlineTasks(){
 let ADVICE = {}; // id клиента -> {r: роль, t: текст, k: ключ последнего касания}
 const ADV_ROLE = {lawyer:"⚖️ Юрист", sales:"🤝 Продажи", marketing:"📣 Маркетинг", finance:"💰 Финансист", logistics:"🚚 Логист"};
 function touchKey(c){ const t = (c.touches||[]).filter(x => x && x.t); return t.length + "|" + (t.length ? (t[t.length-1].d || "") : ""); }
-function adviceHtml(c){
-  if(!ACTIVE.includes(c.temp)) return "";
-  const a = ADVICE[c.id];
-  if(!a || !a.t) return "";
-  if(a.k !== touchKey(c)) return `<div class="advice stale"><span class="ai">💡 Совет AI</span>Новое касание учтено — свежий совет появится в течение часа</div>`;
-  return `<div class="advice"><span class="ai">💡 Совет AI</span>${esc(a.t)}</div>`;
+function adviceHtml(c, expanded=false){
+  if(!isOwner() || !ACTIVE.includes(c.temp)) return "";
+  const a=ADVICE[c.id], d=a && a.analysis;
+  if(!a || a.k!==touchKey(c) || !d || !Number.isInteger(d.score) || d.score<0 || d.score>100) return '<div class="advice stale"><span class="ai">💡 Анализ ИИ</span>Ожидается обновлённый анализ</div>';
+  const score=String(d.score), tone=d.score>=75?'var(--green)':d.score>=45?'#b7791f':'var(--red)';
+  if(!expanded) return `<div class="advice analysis-v2"><span class="ai">💡 Анализ ИИ</span><b style="float:right;color:${tone}">${score}/100</b><div>${esc(a.t)}</div><div class="actions" style="justify-content:space-between"><small>${esc(d.trend)}</small><button class="btn small" data-open="${esc(c.id)}" type="button">Подробнее ›</button></div></div>`;
+  const fields=[["Текущая ситуация",d.situation],["Главное препятствие",d.obstacle],["Рекомендуемая тактика",d.step],["Цель звонка",d.goal],["Что спросить клиента",d.question],["Чего избегать",d.avoid],["Следующее касание",d.when]];
+  return `<div class="advice analysis-v2 full"><b>💡 Экспертный анализ ИИ</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Риск потери: ${esc(d.risk)}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Экспертная оценка, не статистическая вероятность сделки.</small></div>`;
 }
 
 // ---------- встречи
@@ -1443,7 +1446,7 @@ function renderPanel(focus){
       ${lt?`<div class="last"><small>Было в последний раз${lt.d?" · "+fmt(lt.d):""}${byTag(lt.by)}</small>${esc(lt.t)}</div>`:""}
       ${c.plan?`<div class="rec"><span><b>План:</b> ${esc(c.plan)}</span></div>`:""}
       ${recFor(c)?`<div class="rec"><span><b>Рекомендация:</b> ${esc(recFor(c))}</span></div>`:""}
-      ${adviceHtml(c)}
+      ${adviceHtml(c,true)}
       <div class="actions"><span class="lbl">Перенести созвон:</span>${moveBtns(c.id)}${c.next && s.k!=="arch" ? `<button class="btn small" data-ics="${c.id}" type="button">📅 В календарь</button>` : ""}</div></div>
     ${meetBox(c)}
     <form class="box" id="touchForm"><h4>Записать касание</h4>
