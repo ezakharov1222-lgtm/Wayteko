@@ -1,0 +1,55 @@
+name: WAYTEKO semantic analysis
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '25 5-19 * * *'
+permissions:
+  contents: write
+concurrency:
+  group: wayteko-semantic-analysis
+  cancel-in-progress: false
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare local model
+        run: |
+          python -m pip install cryptography
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          ollama pull qwen2.5:3b
+      - name: Analyze and publish encrypted results
+        env:
+          WAYTEKO_PW: ${{ secrets.WAYTEKO_PW }}
+        run: |
+          set -eu
+          umask 077
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          python tools/advice.py todo "$tmp/todo.json"
+          python - "$tmp/todo.json" <<'PY'
+          import json,sys
+          p=sys.argv[1]
+          d=json.load(open(p))
+          d["clients"]=d["clients"][:12]
+          json.dump(d,open(p,"w"),ensure_ascii=False)
+          PY
+          python tools/semantic_analysis.py "$tmp/todo.json" "$tmp/answers.json" || test -s "$tmp/answers.json"
+          python tools/advice.py apply "$tmp/answers.json"
+          git config user.name "WAYTEKO bot"
+          git config user.email "bot@wayteko.local"
+          git add data/advice.enc.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Refresh encrypted semantic analysis"
+          git push origin HEAD:main

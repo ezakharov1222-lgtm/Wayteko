@@ -1313,24 +1313,17 @@ function analysisTrend(c){
 }
 function currentAnalysis(c){
   const saved=ADVICE[c.id];
-  if(saved && saved.k===touchKey(c) && Number.isInteger(saved.analysis?.score) && saved.analysis.score>=0 && saved.analysis.score<=100) return {...saved,analysis:{...saved.analysis,trend:analysisTrend(c)}};
-  const touches=(c.touches||[]).filter(x=>x&&x.t);
-  const last=touches[touches.length-1], raw=last?.t||c.intro||"";
-  if(!raw) return null;
-  const late=callState(c).k==="over", age=last?.d?diffDays(todayIso(),last.d):null;
-  const stale=Number.isFinite(age)&&age>30;
-  const score=Math.max(0,Math.min(100,30+Math.min(touches.length,5)*6-(late?15:0)-(stale?15:0)));
-  const step=c.plan||recFor(c)||"Уточнить текущий статус и согласовать следующий шаг.";
-  return {k:touchKey(c),t:step,analysis:{score,trend:analysisTrend(c),risk:late||stale?"Повышенный":"Не определён",situation:String(raw).slice(0,300),obstacle:late?"Срок звонка пропущен.":"Причина задержки не подтверждена.",step,goal:"Согласовать конкретный следующий шаг.",question:"Что необходимо для следующего решения?",avoid:"Не считать интерес подтверждённым без ответа клиента.",when:late?"Сегодня":c.next?fmtW(c.next):"Согласовать дату"}};
+  if(saved && saved.source==="qwen" && saved.k===touchKey(c) && Number.isInteger(saved.analysis?.score) && saved.analysis.score>=0 && saved.analysis.score<=100) return saved;
+  return null;
 }
 function adviceHtml(c, expanded=false){
   if(!isOwner() || !ACTIVE.includes(c.temp)) return "";
   const a=currentAnalysis(c), d=a && a.analysis;
-  if(!a || a.k!==touchKey(c) || !d || !Number.isInteger(d.score) || d.score<0 || d.score>100) return '<div class="advice stale"><span class="ai">💡 Анализ клиента</span>Недостаточно данных: добавьте первое касание</div>';
+  if(!a || a.k!==touchKey(c) || !d || !Number.isInteger(d.score) || d.score<0 || d.score>100) return '<div class="advice stale"><span class="ai">💡 Анализ клиента</span>ИИ-анализ ожидает обновления или недостаточно данных</div>';
   const score=String(d.score), tone=d.score>=75?'var(--green)':d.score>=45?'#b7791f':'var(--red)';
   if(!expanded) return `<div class="advice analysis-v2"><span class="ai">💡 Анализ клиента</span><b style="float:right;color:${tone}">${score}/100</b><div>${esc(a.t)}</div><div class="actions" style="justify-content:space-between"><small>${esc(d.trend)}</small><button class="btn small" data-open="${esc(c.id)}" type="button">Подробнее ›</button></div></div>`;
   const fields=[["Текущая ситуация",d.situation],["Главное препятствие",d.obstacle],["Рекомендуемая тактика",d.step],["Цель звонка",d.goal],["Что спросить клиента",d.question],["Чего избегать",d.avoid],["Следующее касание",d.when]];
-  return `<div class="advice analysis-v2 full"><b>💡 Анализ клиента</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Состояние переговоров: ${esc(negotiationState(c))}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Алгоритмическая оценка, не вероятность сделки.</small></div>`;
+  return `<div class="advice analysis-v2 full"><b>💡 Анализ клиента</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div>Перспективность<br><b style="font-size:22px;color:${tone}">${score}/100</b><div style="height:6px;background:var(--line);border-radius:6px"><div style="height:6px;width:${score}%;background:${tone};border-radius:6px"></div></div></div><div>Динамика<br><b>${esc(d.trend)}</b><br><small>Состояние переговоров: ${esc(d.risk)}</small></div></div>${fields.filter(x=>x[1]).map(x=>`<div><b>${x[0]}</b><br>${esc(x[1])}</div>`).join("")}<small>Оценка ИИ, не вероятность сделки.</small></div>`;
 }
 
 // ---------- встречи
