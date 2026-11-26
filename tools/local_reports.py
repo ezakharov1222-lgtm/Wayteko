@@ -22,7 +22,28 @@ def line(c):
 schedule = os.environ.get("SCHEDULE","")
 if not schedule or schedule.startswith("40"):
     due = sorted([c for c in clients if c.get("next") and c["next"] <= iso], key=lambda c:(c["next"],c.get("temp")!="hot"))
-    save("morning-"+iso, "План звонков "+iso+"\n"+"\n".join(map(line,due)))
+    from html import escape
+    def clean(value, limit=280):
+        text = " ".join(str(value or "").split())
+        return escape(text if len(text) <= limit else text[:limit-1].rsplit(" ", 1)[0] + "…")
+    def section(title, color, group):
+        parts = [f'<h3 style="color:{color};border-bottom:2px solid {color};padding-bottom:5px">{title} ({len(group)})</h3>']
+        for c in group:
+            ts = [t for t in (c.get("touches") or []) if t and t.get("t")]
+            last = ts[-1] if ts else {}
+            note = clean(last.get("t") or c.get("intro") or "Нет записи")
+            date = clean(last.get("d"))
+            plan = clean(c.get("plan") or "Уточнить статус и согласовать следующий шаг (рекомендация)")
+            icon = {"hot":"🔥","warm":"🌤️","cold":"❄️","dealer":"✅"}.get(c.get("temp"),"")
+            parts.append(f'<p style="margin:10px 0"><b>{icon} {clean(c.get("name"))} — {clean(c.get("fio"))}</b> · {clean(c.get("phone"))}<br>Последнее касание {date}: {note}<br><b>Что сделать:</b> {plan}</p>')
+        return "".join(parts)
+    overdue = [c for c in due if c["next"] < iso]
+    today = [c for c in due if c["next"] == iso]
+    html = f'<div style="font:15px/1.4 Arial,sans-serif;background:#fff;color:#111;padding:12px"><h2>План касаний WAYTEKO на {day:%d.%m.%Y}</h2><p>Просрочено {len(overdue)} · на сегодня {len(today)}</p>'
+    html += section("1. Просроченные касания", "#c62818", overdue)
+    html += section("2. Созвоны на сегодня", "#d35400", today)
+    html += '<p><a href="https://ezakharov1222-lgtm.github.io/Wayteko/">Открыть WAYTEKO</a></p></div>'
+    save("morning-"+iso, html)
 if not schedule or schedule.startswith("43"):
     counts = Counter(c.get("temp") for c in clients)
     touches = [(c.get("name"),t.get("t")) for c in clients for t in (c.get("touches") or []) if t.get("d")==iso]
