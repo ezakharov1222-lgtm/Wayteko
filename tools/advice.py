@@ -37,7 +37,8 @@ def tkey(c):
 
 
 def fingerprint(c):
-    return hashlib.sha256(json.dumps(c,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    data = {"status": c.get("temp"), "intro": c.get("intro"), "next_call": c.get("next"), "plan": c.get("plan"), "touches": [x for x in (c.get("touches") or []) if x and x.get("t")], "meets": c.get("meets") or [], "contract": c.get("contract")}
+    return hashlib.sha256(json.dumps(data,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 app = dec(APP)
 adv = dec(ADV) if os.path.exists(ADV) else {"updated": "", "items": {}}
@@ -61,6 +62,8 @@ if cmd == "todo":
                      "meets": c.get("meets") or [], "contract": c.get("contract"), "previous_advice": (a or {}).get("t")})
     todo.sort(key=lambda c: (items.get(c["id"], {}).get("at", ""), c["id"]))
     json.dump({"today": today, "clients": todo}, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    total = sum(c.get("temp") in ACTIVE and c.get("id") not in (app.get("deleted") or []) for c in clients.values())
+    print(f"COVERAGE active={total} ready={total-len(todo)} pending={len(todo)}")
     print(f"ждут нового совета: {len(todo)}")
 
 elif cmd == "apply":
