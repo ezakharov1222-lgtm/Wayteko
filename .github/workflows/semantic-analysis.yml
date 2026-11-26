@@ -65,3 +65,6 @@ jobs:
             done
             test "$published" = 1
           done
+          git fetch origin main
+          git reset --hard origin/main
+          python tools/advice.py todo "$tmp/verify.json"
