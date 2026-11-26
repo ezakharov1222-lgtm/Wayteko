@@ -27,6 +27,7 @@ if __name__ == "__main__":
     for c in source["clients"]:
         try:
             answers[c["id"]] = analyze(c,source["today"])
+            answers[c["id"]]["fingerprint"] = c["fingerprint"]
         except Exception:
             print("Analysis failed for one record",file=sys.stderr)
     json.dump(answers,open(sys.argv[2],"w",encoding="utf-8"),ensure_ascii=False)
