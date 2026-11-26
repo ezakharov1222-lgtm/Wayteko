@@ -51,9 +51,14 @@ jobs:
                       body = AESGCM(k).decrypt(b(d["iv"]), b(d["ct"]), None).decode()
                       msg = EmailMessage()
                       msg["From"] = sender
-                      msg["To"] = "zaharov@wayteko.ru, e.zakharov1222@gmail.com"
+                      msg["To"] = "zaharov@wayteko.ru"
+                      msg["Cc"] = "ezakharov1222@gmail.com"
                       msg["Subject"] = "WAYTEKO — " + {"morning":"План звонков","evening":"Отчёт по клиентам","tasks":"Отчёт по задачам"}[p.name.split("-")[0]]
-                      msg.set_content(body)
+                      if p.name.startswith("morning-") and body.startswith("<div"):
+                          msg.set_content("План касаний WAYTEKO — откройте HTML-версию письма.")
+                          msg.add_alternative(body, subtype="html")
+                      else:
+                          msg.set_content(body)
                       if smtp.send_message(msg):
                           raise RuntimeError("Recipient refused")
               print("Reports sent")
