@@ -51,16 +51,15 @@ if cmd == "todo":
     for c in clients.values():
         if c.get("temp") not in ACTIVE or c.get("id") in (app.get("deleted") or []):
             continue
-        if not (c.get("touches") or c.get("intro")):
-            continue
         a = items.get(c["id"])
-        if a and a.get("source") == "qwen" and a.get("fingerprint") == fingerprint(c) and a.get("at","")[:10] == today and a.get("analysis"):
+        if a and a.get("source") == "qwen" and a.get("fingerprint") == fingerprint(c) and a.get("day") == today and a.get("analysis"):
             continue
-        todo.append({"id": c["id"], "name": c.get("name"), "status": c.get("temp"), "region": c.get("region"),
+        todo.append({"id": c["id"], "fingerprint": fingerprint(c), "name": c.get("name"), "status": c.get("temp"), "region": c.get("region"),
                      "contact": c.get("fio"), "position": c.get("position"), "intro": c.get("intro"),
                      "next_call": c.get("next"), "plan": c.get("plan"),
                      "touches": [x for x in (c.get("touches") or []) if x and x.get("t")],
                      "meets": c.get("meets") or [], "contract": c.get("contract"), "previous_advice": (a or {}).get("t")})
+    todo.sort(key=lambda c: (items.get(c["id"], {}).get("at", ""), c["id"]))
     json.dump({"today": today, "clients": todo}, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"ждут нового совета: {len(todo)}")
 
@@ -70,6 +69,8 @@ elif cmd == "apply":
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     for cid, v in ans.items():
         c = clients.get(cid)
+        if c and ((v or {}).get("fingerprint") != fingerprint(c) or c.get("temp") not in ACTIVE or cid in (app.get("deleted") or [])):
+            continue
         if not c:
             errs.append(f"{cid}: нет такого клиента"); continue
         r, t = (v or {}).get("r"), " ".join(str((v or {}).get("t") or "").split())
@@ -81,7 +82,7 @@ elif cmd == "apply":
         fields = ("trend", "risk", "situation", "obstacle", "step", "goal", "question", "avoid", "when")
         if not isinstance(d, dict) or type(d.get("score")) is not int or not 0 <= d["score"] <= 100 or any(not isinstance(d.get(f), str) or not d[f].strip() or len(d[f]) > 300 for f in fields):
             errs.append(f"{cid}: требуется analysis: score 0–100 и поля {fields}"); continue
-        items[cid] = {"cid": cid, "r": r, "t": t, "k": tkey(c), "at": now, "source": "qwen", "fingerprint": fingerprint(c), "analysis": {"score": d["score"], **{f: d[f].strip() for f in fields}}}; done += 1
+        items[cid] = {"cid": cid, "r": r, "t": t, "k": tkey(c), "at": now, "source": "qwen", "day": dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).date().isoformat(), "fingerprint": fingerprint(c), "analysis": {"score": d["score"], **{f: d[f].strip() for f in fields}}}; done += 1
     if done:
         adv["updated"] = now
         enc(adv, ADV)
