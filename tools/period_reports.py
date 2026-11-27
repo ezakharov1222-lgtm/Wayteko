@@ -76,6 +76,13 @@ def render(app,start,end,analyses):
     interested=0
     overdue=0
     turnover={}
+    group_counts={}
+    def concise(value,limit=150):
+        import re
+        value=" ".join(str(value or "").split())
+        value=re.split(r"(?<=[.!?])\s+(?=[А-ЯЁA-Z])",value,maxsplit=1)[0]
+        if len(value)>limit: value=value[:limit-1].rsplit(" ",1)[0].rstrip(",;:")+"…"
+        return value
     def revenue(c):
         try: return float(str(c.get("revenue")).replace(" ","").replace(",","."))
         except (ValueError,TypeError): return None
@@ -110,21 +117,23 @@ def render(app,start,end,analyses):
         group=special.get(status) or ("ПРИОРИТЕТ A — ДОГОВОР В РАБОТЕ" if pending else "ДЕЙСТВУЮЩИЕ ДИЛЕРЫ" if signed else "ПРИОРИТЕТ B — ПОДТВЕРЖДЁННЫЙ ИНТЕРЕС" if intent else "ПРИОРИТЕТ C — ПЕРВИЧНАЯ ПРОРАБОТКА")
         v=revenue(c)
         if v is not None: turnover[group]=turnover.get(group,0)+v
-        stage=a.get("situation") or "Первичная стадия переговоров"
-        if pending: stage="Договор в работе. "+stage
-        elif signed: stage="Договор подписан. "+stage
-        prospect=(" ".join(a[k] for k in ("trend","goal","obstacle") if a.get(k))) or "Первичная проработка: возможность сотрудничества предстоит уточнить."
+        stage=concise(a.get("situation") or "Первичная стадия переговоров",120)
+        if pending: stage=concise("Договор в работе; "+stage,150)
+        elif signed: stage=concise("Договор подписан; "+stage,150)
+        prospect=concise(a.get("goal") or a.get("trend") or "Возможность сотрудничества предстоит уточнить.",150)
+        group_counts[group]=group_counts.get(group,0)+len(period)
         groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(f"{len(period)} / {len(history)}"),p(money(v) if v is not None else "Нет данных"),p(stage),p(prospect)])
     n=sum(map(len,groups.values()))
     a_total=sum(v for g,v in turnover.items() if g.startswith("ПРИОРИТЕТ A"))
     b_total=sum(v for g,v in turnover.items() if g.startswith("ПРИОРИТЕТ B"))
     story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"— {n} компаний в отчёте, {count} касаний за период. Просроченных контактов: {overdue}."),p(f"— {signing} компаний на стадии подписания: договор в работе."),p(f"— {interested} компаний подтвердили заинтересованность или перешли к договору."),p(f"— Известный суммарный оборот: приоритет А — {money(a_total)}, приоритет Б — {money(b_total)}. Компании без данных о выручке не включены в суммы."),Spacer(1,10)]
-    kpi=Table([[p(n,heading),p(count,heading),p(signing,heading),p(interested,heading)],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
+    kpi=Table([[p(n,ParagraphStyle("kpi",parent=heading,fontSize=20,leading=24)),p(count,ParagraphStyle("kpi2",parent=heading,fontSize=20,leading=24)),p(signing,ParagraphStyle("orange",parent=heading,fontSize=20,leading=24,textColor=colors.HexColor("#c55a11"))),p(interested,ParagraphStyle("green",parent=heading,fontSize=20,leading=24,textColor=colors.HexColor("#548235")))],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
     kpi.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf1f6")),("BOX",(0,0),(-1,-1),0.5,navy),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story.extend([kpi,Spacer(1,16)])
     for group,rows in sorted(groups.items(),key=lambda x: next((i for i,k in enumerate(("ПРИОРИТЕТ A","ПРИОРИТЕТ B","ПРИОРИТЕТ C","ДЕЙСТВУЮЩИЕ","ФИЛИАЛЫ","ОТКАЗЫ")) if x[0].startswith(k)),99)):
         story.append(p(group,heading))
-        story.append(p(f"Компаний: {len(rows)}. Известный суммарный оборот: {money(turnover.get(group,0))}."))
+        note=("Ближайшая цель — завершение согласования и подписание договоров." if group.startswith("ПРИОРИТЕТ A") else "Потенциал перехода к договору после подтверждения коммерческих условий." if group.startswith("ПРИОРИТЕТ B") else "Необходимо подтвердить интерес и определить потенциал сотрудничества." if group.startswith("ПРИОРИТЕТ C") else "")
+        story.append(p(f"Компаний: {len(rows)} · касаний за период: {group_counts[group]} · известный оборот: {money(turnover[group]) if group in turnover else 'нет данных'}. {note}"))
         table=Table([[p(x,ParagraphStyle("th",parent=bold,textColor=colors.white)) for x in ["Компания, регион","Кас. период / всего","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[145,65,90,230,218],repeatRows=1)
         table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),navy),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#fce9df"),colors.HexColor("#fff4ed")] if group.startswith("ПРИОРИТЕТ A") else [colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
         story.extend([table,Spacer(1,12)])
