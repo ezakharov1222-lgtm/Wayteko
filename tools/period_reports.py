@@ -10,6 +10,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4, landscape
 
+from semantic_analysis import analyze
+
 def main():
     box=json.loads(Path("data/app.enc.json").read_text())
     b=base64.b64decode
@@ -18,10 +20,19 @@ def main():
     day=dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).date()
     schedule=os.environ.get("SCHEDULE","")
     modes=["week","month"] if not schedule else (["week"] if schedule=="0 16 * * 5" else ["month"] if (day+dt.timedelta(days=1)).month!=day.month else [])
+    if not modes: return
+    analyses={}
+    for c in app["clients"]:
+        if c.get("id") in (app.get("deleted") or []): continue
+        if not any(t and t.get("t") for t in (c.get("touches") or [])): continue
+        try:
+            analyses[c["id"]]=analyze(c,day.isoformat())["analysis"]
+        except Exception:
+            raise RuntimeError("Client analysis failed; report not sent") from None
     for mode in modes:
         start=day-dt.timedelta(days=day.weekday()) if mode=="week" else day.replace(day=1)
         end=min(day,start+dt.timedelta(days=4)) if mode=="week" else day
-        pdf=render(app,start,end)
+        pdf=render(app,start,end,analyses)
         msg=EmailMessage()
         msg["From"]="e.zakharov1222@gmail.com"
         msg["To"]="zaharov@wayteko.ru"
@@ -34,7 +45,7 @@ def main():
             if smtp.send_message(msg): raise RuntimeError("Recipient refused")
         print("PDF sent:",mode)
 
-def render(app,start,end):
+def render(app,start,end,analyses):
     for name,file in [("Regular","DejaVuSans.ttf"),("Bold","DejaVuSans-Bold.ttf")]:
         pdfmetrics.registerFont(TTFont(name,"/usr/share/fonts/truetype/dejavu/"+file))
     navy=colors.HexColor("#18365b")
@@ -51,7 +62,10 @@ def render(app,start,end):
         count+=len(period)
         status=c.get("temp")
         group={"branch":"ФИЛИАЛЫ","dealer":"ДЕЙСТВУЮЩИЕ ДИЛЕРЫ","refused":"ОТКАЗЫ"}.get(status,"В ПРОРАБОТКЕ — СТАДИЯ НЕ ПОДТВЕРЖДЕНА")
-        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(c.get("revenue2025") or "Нет подтверждённых данных"),p((history[-1]["t"] if history else "Первичная стадия переговоров")),p("Первичная проработка: перспективы сотрудничества предстоит уточнить." if not history else "Дальнейшая стадия зависит от подтверждения договорённостей; последний зафиксированный контакт: "+str(history[-1]["t"]))])
+        a=analyses.get(c.get("id"),{})
+        stage=a.get("situation") or "Первичная стадия переговоров"
+        prospect=(" ".join(a[k] for k in ("trend","goal","obstacle") if a.get(k))) or "Первичная проработка: возможность сотрудничества предстоит уточнить."
+        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(c.get("revenue2025") or "Нет подтверждённых данных"),p(stage),p(prospect)])
     n=sum(map(len,groups.values()))
     story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"Компаний в отчёте: {n}. Касаний за период: {count}. Стадии подписания и намерения не подсчитаны без подтверждённых данных."),Spacer(1,10)]
     kpi=Table([[p(n,heading),p(count,heading),p("—",heading),p("—",heading)],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
