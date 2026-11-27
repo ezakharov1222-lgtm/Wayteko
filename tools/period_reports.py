@@ -74,6 +74,12 @@ def render(app,start,end,analyses):
     count=0
     signing=0
     interested=0
+    overdue=0
+    turnover={}
+    def revenue(c):
+        try: return float(str(c.get("revenue")).replace(" ","").replace(",","."))
+        except (ValueError,TypeError): return None
+    def money(v): return (f"{v/1000:,.1f} млрд ₽" if v>=1000 else f"{v:,.1f} млн ₽").replace(","," ").replace(".",",")
     for c in app["clients"]:
         if c.get("id") in (app.get("deleted") or []): continue
         history=sorted([t for t in (c.get("touches") or []) if t and t.get("t")],key=lambda t:str(t.get("d") or ""))
@@ -98,23 +104,29 @@ def render(app,start,end,analyses):
             intent=bool(re.search(positive,t) and not re.search(negative,t))
         special={"branch":"ФИЛИАЛЫ","dealer":"ДЕЙСТВУЮЩИЕ ДИЛЕРЫ","refused":"ОТКАЗЫ"}
         if status not in special:
+            overdue+=int(bool(c.get("next") and str(c["next"])[:10]<str(end)))
             signing+=int(pending)
             interested+=int(intent or pending or signed)
         group=special.get(status) or ("ПРИОРИТЕТ A — ДОГОВОР В РАБОТЕ" if pending else "ДЕЙСТВУЮЩИЕ ДИЛЕРЫ" if signed else "ПРИОРИТЕТ B — ПОДТВЕРЖДЁННЫЙ ИНТЕРЕС" if intent else "ПРИОРИТЕТ C — ПЕРВИЧНАЯ ПРОРАБОТКА")
+        v=revenue(c)
+        if v is not None: turnover[group]=turnover.get(group,0)+v
         stage=a.get("situation") or "Первичная стадия переговоров"
         if pending: stage="Договор в работе. "+stage
         elif signed: stage="Договор подписан. "+stage
         prospect=(" ".join(a[k] for k in ("trend","goal","obstacle") if a.get(k))) or "Первичная проработка: возможность сотрудничества предстоит уточнить."
-        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(c.get("revenue") or "Нет подтверждённых данных"),p(stage),p(prospect)])
+        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(money(v) if v is not None else "Нет данных"),p(stage),p(prospect)])
     n=sum(map(len,groups.values()))
-    story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"Компаний в отчёте: {n}. Касаний за период: {count}. Договор в работе: {signing}. Подтвердили намерение: {interested}."),Spacer(1,10)]
+    a_total=sum(v for g,v in turnover.items() if g.startswith("ПРИОРИТЕТ A"))
+    b_total=sum(v for g,v in turnover.items() if g.startswith("ПРИОРИТЕТ B"))
+    story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"— {n} компаний в отчёте, {count} касаний за период. Просроченных контактов: {overdue}."),p(f"— {signing} компаний на стадии подписания: договор в работе."),p(f"— {interested} компаний подтвердили заинтересованность или перешли к договору."),p(f"— Известный суммарный оборот: приоритет А — {money(a_total)}, приоритет Б — {money(b_total)}. Компании без данных о выручке не включены в суммы."),Spacer(1,10)]
     kpi=Table([[p(n,heading),p(count,heading),p(signing,heading),p(interested,heading)],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
     kpi.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf1f6")),("BOX",(0,0),(-1,-1),0.5,navy),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story.extend([kpi,Spacer(1,16)])
     for group,rows in sorted(groups.items(),key=lambda x: next((i for i,k in enumerate(("ПРИОРИТЕТ A","ПРИОРИТЕТ B","ПРИОРИТЕТ C","ДЕЙСТВУЮЩИЕ","ФИЛИАЛЫ","ОТКАЗЫ")) if x[0].startswith(k)),99)):
         story.append(p(group,heading))
-        table=Table([[p(x,bold) for x in ["Компания, регион","Кас.","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[155,45,95,235,218],repeatRows=1)
-        table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#dce5ef")),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#fce9df"),colors.HexColor("#fff4ed")] if group.startswith("ПРИОРИТЕТ A") else [colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
+        story.append(p(f"Компаний: {len(rows)}. Известный суммарный оборот: {money(turnover.get(group,0))}."))
+        table=Table([[p(x,ParagraphStyle("th",parent=bold,textColor=colors.white)) for x in ["Компания, регион","Кас.","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[155,45,95,235,218],repeatRows=1)
+        table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),navy),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#fce9df"),colors.HexColor("#fff4ed")] if group.startswith("ПРИОРИТЕТ A") else [colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
         story.extend([table,Spacer(1,12)])
     out=io.BytesIO()
     SimpleDocTemplate(out,pagesize=landscape(A4),leftMargin=45,rightMargin=45,topMargin=35,bottomMargin=35).build(story)
