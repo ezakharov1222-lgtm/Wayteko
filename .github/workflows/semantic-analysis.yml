@@ -68,3 +68,9 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
           python tools/advice.py todo "$tmp/verify.json"
+
+          python - "$tmp/verify.json" <<'PY'
+          import json, sys
+          pending = len(json.load(open(sys.argv[1]))["clients"])
+          if pending: raise SystemExit("Coverage incomplete: pending="+str(pending))
+          PY
