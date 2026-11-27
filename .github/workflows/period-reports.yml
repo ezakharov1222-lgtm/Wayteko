@@ -1,0 +1,32 @@
+name: WAYTEKO Period Reports
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/period-reports.yml'
+  schedule:
+    - cron: '0 16 * * 5'
+    - cron: '0 16 28-31 * *'
+permissions:
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-dejavu-core
+          python -m pip install cryptography reportlab
+          python -m py_compile tools/period_reports.py
+      - name: Generate and send PDF privately
+        env:
+          WAYTEKO_PW: ${{ secrets.WAYTEKO_PW }}
+          WAYTEKO_SMTP_PASSWORD: ${{ secrets.WAYTEKO_SMTP_PASSWORD }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: python tools/period_reports.py
