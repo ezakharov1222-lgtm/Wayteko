@@ -48,13 +48,12 @@ def render(app,start,end):
         if c.get("id") in (app.get("deleted") or []): continue
         history=sorted([t for t in (c.get("touches") or []) if t and t.get("t")],key=lambda t:str(t.get("d") or ""))
         period=[t for t in history if str(start)<=str(t.get("d",""))[:10]<=str(end)]
-        if not period: continue
         count+=len(period)
         status=c.get("temp")
         group={"branch":"ФИЛИАЛЫ","dealer":"ДЕЙСТВУЮЩИЕ ДИЛЕРЫ","refused":"ОТКАЗЫ"}.get(status,"В ПРОРАБОТКЕ — СТАДИЯ НЕ ПОДТВЕРЖДЕНА")
-        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(c.get("revenue2025") or "Нет подтверждённых данных"),p(period[-1]["t"]),p("Не определена: требуется подтверждённый анализ истории")])
+        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(c.get("revenue2025") or "Нет подтверждённых данных"),p((history[-1]["t"] if history else "Первичная стадия переговоров")),p("Первичная проработка: перспективы сотрудничества предстоит уточнить." if not history else "Дальнейшая стадия зависит от подтверждения договорённостей; последний зафиксированный контакт: "+str(history[-1]["t"]))])
     n=sum(map(len,groups.values()))
-    story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"Компаний с касаниями: {n}. Касаний за период: {count}. Стадии подписания и намерения не подсчитаны без подтверждённых данных."),Spacer(1,10)]
+    story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"Компаний в отчёте: {n}. Касаний за период: {count}. Стадии подписания и намерения не подсчитаны без подтверждённых данных."),Spacer(1,10)]
     kpi=Table([[p(n,heading),p(count,heading),p("—",heading),p("—",heading)],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
     kpi.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf1f6")),("BOX",(0,0),(-1,-1),0.5,navy),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story.extend([kpi,Spacer(1,16)])
