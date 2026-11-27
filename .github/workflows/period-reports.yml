@@ -30,7 +30,7 @@ jobs:
           ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
           ollama pull qwen2.5:3b
-      - name: Generate and send PDF privately
+      - name: Generate and send PDF with verified cached analysis
         env:
           WAYTEKO_PW: ${{ secrets.WAYTEKO_PW }}
           WAYTEKO_SMTP_PASSWORD: ${{ secrets.WAYTEKO_SMTP_PASSWORD }}
