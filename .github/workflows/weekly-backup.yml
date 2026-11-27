@@ -1,6 +1,10 @@
 name: WAYTEKO weekly encrypted backup
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/weekly-backup.yml'
   schedule:
     - cron: '23 18 * * 0'
 permissions:
