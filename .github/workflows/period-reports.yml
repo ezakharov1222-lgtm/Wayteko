@@ -36,3 +36,5 @@ jobs:
           WAYTEKO_SMTP_PASSWORD: ${{ secrets.WAYTEKO_SMTP_PASSWORD }}
           SCHEDULE: ${{ github.event.schedule }}
         run: python tools/period_reports.py
+
+# Test updated ABC funnel and KPI delivery
