@@ -38,3 +38,5 @@ jobs:
         run: python tools/period_reports.py
 
 # Test updated ABC funnel and KPI delivery
+
+# Test compact stage and perspective, management summary, no history appendix
