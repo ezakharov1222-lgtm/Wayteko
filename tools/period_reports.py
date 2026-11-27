@@ -76,7 +76,6 @@ def render(app,start,end,analyses):
     interested=0
     overdue=0
     turnover={}
-    histories=[]
     def revenue(c):
         try: return float(str(c.get("revenue")).replace(" ","").replace(",","."))
         except (ValueError,TypeError): return None
@@ -86,7 +85,6 @@ def render(app,start,end,analyses):
         history=sorted([t for t in (c.get("touches") or []) if t and t.get("t")],key=lambda t:str(t.get("d") or ""))
         period=[t for t in history if str(start)<=str(t.get("d",""))[:10]<=str(end)]
         count+=len(period)
-        histories.append((c.get("name") or "Без названия",c.get("region") or "",history,len(period)))
         status=c.get("temp")
         a=analyses.get(c.get("id"),{})
         contract=c.get("contract")
@@ -130,14 +128,6 @@ def render(app,start,end,analyses):
         table=Table([[p(x,ParagraphStyle("th",parent=bold,textColor=colors.white)) for x in ["Компания, регион","Кас. период / всего","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[145,65,90,230,218],repeatRows=1)
         table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),navy),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#fce9df"),colors.HexColor("#fff4ed")] if group.startswith("ПРИОРИТЕТ A") else [colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
         story.extend([table,Spacer(1,12)])
-    from reportlab.platypus import PageBreak
-    story.extend([PageBreak(),p("ПРИЛОЖЕНИЕ — ИСТОРИЯ КАСАНИЙ",heading),p("Все зарегистрированные касания из WAYTEKO. В основной таблице указано количество за отчётный период / за всю историю."),Spacer(1,10)])
-    for name,region,history,period_count in sorted(histories,key=lambda x:str(x[0]).casefold()):
-        story.append(p(f"{name} / {region} — за период: {period_count}; всего: {len(history)}",heading))
-        if not history: story.append(p("Касаний не зарегистрировано."))
-        for t in history:
-            story.append(p(f"{t.get('d') or 'Дата не указана'} — {t.get('t') or ''}"))
-        story.append(Spacer(1,8))
     out=io.BytesIO()
     SimpleDocTemplate(out,pagesize=landscape(A4),leftMargin=45,rightMargin=45,topMargin=35,bottomMargin=35).build(story)
     return out.getvalue()
