@@ -69,29 +69,52 @@ def render(app,start,end,analyses):
     normal=ParagraphStyle("normal",fontName="Regular",fontSize=9,leading=12)
     bold=ParagraphStyle("bold",parent=normal,fontName="Bold")
     heading=ParagraphStyle("heading",parent=bold,fontSize=12,leading=16,textColor=navy)
-    def p(v,style=normal): return Paragraph(escape(str(v or "—")),style)
+    def p(v,style=normal): return Paragraph(escape(str(v if v is not None and v != "" else "—")),style)
     groups={}
     count=0
+    signing=0
+    interested=0
     for c in app["clients"]:
         if c.get("id") in (app.get("deleted") or []): continue
         history=sorted([t for t in (c.get("touches") or []) if t and t.get("t")],key=lambda t:str(t.get("d") or ""))
         period=[t for t in history if str(start)<=str(t.get("d",""))[:10]<=str(end)]
         count+=len(period)
         status=c.get("temp")
-        group={"branch":"ФИЛИАЛЫ","dealer":"ДЕЙСТВУЮЩИЕ ДИЛЕРЫ","refused":"ОТКАЗЫ"}.get(status,"В ПРОРАБОТКЕ — СТАДИЯ НЕ ПОДТВЕРЖДЕНА")
         a=analyses.get(c.get("id"),{})
+        contract=c.get("contract")
+        pending=contract in (True,"work")
+        signed=contract=="signed"
+        # Require positive evidence in the latest relevant recorded contact.
+        import re
+        positive=r"(запросил[аи]?|попросил[аи]?|запросили|интересует|заинтересован[аы]?|подтвердил[аи]? интерес|хотят.{0,30}дилер|получил.{0,25}заказ|согласовали.{0,30}условия|договорились о работе)"
+        negative=r"(не заинтересован|не интересует|отказал|отказались|интерес потерян|не актуально|неактуально)"
+        intent=False
+        for touch in reversed(history):
+            t=str(touch.get("t","")).lower()
+            if re.search(negative,t): break
+            if re.search(positive,t): intent=True; break
+        if not history:
+            t=str(c.get("intro") or "").lower()
+            intent=bool(re.search(positive,t) and not re.search(negative,t))
+        special={"branch":"ФИЛИАЛЫ","dealer":"ДЕЙСТВУЮЩИЕ ДИЛЕРЫ","refused":"ОТКАЗЫ"}
+        if status not in special:
+            signing+=int(pending)
+            interested+=int(intent or pending or signed)
+        group=special.get(status) or ("ПРИОРИТЕТ A — ДОГОВОР В РАБОТЕ" if pending else "ДЕЙСТВУЮЩИЕ ДИЛЕРЫ" if signed else "ПРИОРИТЕТ B — ПОДТВЕРЖДЁННЫЙ ИНТЕРЕС" if intent else "ПРИОРИТЕТ C — ПЕРВИЧНАЯ ПРОРАБОТКА")
         stage=a.get("situation") or "Первичная стадия переговоров"
+        if pending: stage="Договор в работе. "+stage
+        elif signed: stage="Договор подписан. "+stage
         prospect=(" ".join(a[k] for k in ("trend","goal","obstacle") if a.get(k))) or "Первичная проработка: возможность сотрудничества предстоит уточнить."
         groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(period)),p(c.get("revenue") or "Нет подтверждённых данных"),p(stage),p(prospect)])
     n=sum(map(len,groups.values()))
-    story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"Компаний в отчёте: {n}. Касаний за период: {count}. Стадии подписания и намерения не подсчитаны без подтверждённых данных."),Spacer(1,10)]
-    kpi=Table([[p(n,heading),p(count,heading),p("—",heading),p("—",heading)],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
+    story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"Компаний в отчёте: {n}. Касаний за период: {count}. Договор в работе: {signing}. Подтвердили намерение: {interested}."),Spacer(1,10)]
+    kpi=Table([[p(n,heading),p(count,heading),p(signing,heading),p(interested,heading)],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
     kpi.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf1f6")),("BOX",(0,0),(-1,-1),0.5,navy),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story.extend([kpi,Spacer(1,16)])
-    for group,rows in groups.items():
+    for group,rows in sorted(groups.items(),key=lambda x: next((i for i,k in enumerate(("ПРИОРИТЕТ A","ПРИОРИТЕТ B","ПРИОРИТЕТ C","ДЕЙСТВУЮЩИЕ","ФИЛИАЛЫ","ОТКАЗЫ")) if x[0].startswith(k)),99)):
         story.append(p(group,heading))
         table=Table([[p(x,bold) for x in ["Компания, регион","Кас.","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[155,45,95,235,218],repeatRows=1)
-        table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#dce5ef")),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
+        table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#dce5ef")),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#fce9df"),colors.HexColor("#fff4ed")] if group.startswith("ПРИОРИТЕТ A") else [colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
         story.extend([table,Spacer(1,12)])
     out=io.BytesIO()
     SimpleDocTemplate(out,pagesize=landscape(A4),leftMargin=45,rightMargin=45,topMargin=35,bottomMargin=35).build(story)
