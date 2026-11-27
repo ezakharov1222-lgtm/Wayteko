@@ -66,7 +66,7 @@ def render(app,start,end,analyses):
     for name,file in [("Regular","DejaVuSans.ttf"),("Bold","DejaVuSans-Bold.ttf")]:
         pdfmetrics.registerFont(TTFont(name,"/usr/share/fonts/truetype/dejavu/"+file))
     navy=colors.HexColor("#18365b")
-    normal=ParagraphStyle("normal",fontName="Regular",fontSize=9,leading=12)
+    normal=ParagraphStyle("normal",fontName="Regular",fontSize=8,leading=10)
     bold=ParagraphStyle("bold",parent=normal,fontName="Bold")
     heading=ParagraphStyle("heading",parent=bold,fontSize=12,leading=16,textColor=navy)
     def p(v,style=normal): return Paragraph(escape(str(v if v is not None and v != "" else "—")),style)
@@ -114,31 +114,31 @@ def render(app,start,end,analyses):
             overdue+=int(bool(c.get("next") and str(c["next"])[:10]<str(end)))
             signing+=int(pending)
             interested+=int(intent or pending or signed)
-        group=special.get(status) or ("ПРИОРИТЕТ A — ДОГОВОР В РАБОТЕ" if pending else "ДЕЙСТВУЮЩИЕ ДИЛЕРЫ" if signed else "ПРИОРИТЕТ B — ПОДТВЕРЖДЁННЫЙ ИНТЕРЕС" if intent else "ПРИОРИТЕТ C — ПЕРВИЧНАЯ ПРОРАБОТКА")
+        group=("КОРПОРАТИВНЫЕ КЛИЕНТЫ" if re.sub(r"[^а-яa-z]", "", str(c.get("name") or "").lower()) in ("фалогистик","falogistics","фалогистикмск") else special.get(status)) or ("ПРИОРИТЕТ A — ДОГОВОР В РАБОТЕ" if pending else "ДЕЙСТВУЮЩИЕ ДИЛЕРЫ" if signed else "ПРИОРИТЕТ B — ПОДТВЕРЖДЁННЫЙ ИНТЕРЕС" if intent else "ПРИОРИТЕТ C — ПЕРВИЧНАЯ ПРОРАБОТКА")
         v=revenue(c)
         if v is not None: turnover[group]=turnover.get(group,0)+v
         stage=concise(a.get("situation") or "Первичная стадия переговоров",120)
         if pending: stage=concise("Договор в работе; "+stage,150)
         elif signed: stage=concise("Договор подписан; "+stage,150)
-        prospect=concise(a.get("goal") or a.get("trend") or "Возможность сотрудничества предстоит уточнить.",150)
+        prospect=concise(a.get("trend") or a.get("goal") or "Возможность сотрудничества предстоит уточнить.",150)
         group_counts[group]=group_counts.get(group,0)+len(period)
-        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(f"{len(period)} / {len(history)}"),p(money(v) if v is not None else "Нет данных"),p(stage),p(prospect)])
+        groups.setdefault(group,[]).append([p(" / ".join(str(c.get(k) or "") for k in ("name","region")).strip(" /"),bold),p(len(history)),p(money(v) if v is not None else "Нет данных"),p(stage),p(prospect)])
     n=sum(map(len,groups.values()))
     a_total=sum(v for g,v in turnover.items() if g.startswith("ПРИОРИТЕТ A"))
     b_total=sum(v for g,v in turnover.items() if g.startswith("ПРИОРИТЕТ B"))
     story=[p("Сергей Алексеевич, добрый день!",bold),p("Ниже — состояние работы с потенциальными дилерами за "+str(start)+" — "+str(end)),Spacer(1,12),p("ГЛАВНОЕ",heading),p(f"— {n} компаний в отчёте, {count} касаний за период. Просроченных контактов: {overdue}."),p(f"— {signing} компаний на стадии подписания: договор в работе."),p(f"— {interested} компаний подтвердили заинтересованность или перешли к договору."),p(f"— Известный суммарный оборот: приоритет А — {money(a_total)}, приоритет Б — {money(b_total)}. Компании без данных о выручке не включены в суммы."),Spacer(1,10)]
-    kpi=Table([[p(n,ParagraphStyle("kpi",parent=heading,fontSize=20,leading=24)),p(count,ParagraphStyle("kpi2",parent=heading,fontSize=20,leading=24)),p(signing,ParagraphStyle("orange",parent=heading,fontSize=20,leading=24,textColor=colors.HexColor("#c55a11"))),p(interested,ParagraphStyle("green",parent=heading,fontSize=20,leading=24,textColor=colors.HexColor("#548235")))],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[187]*4)
+    kpi=Table([[p(n,ParagraphStyle("kpi",parent=heading,fontSize=20,leading=24)),p(count,ParagraphStyle("kpi2",parent=heading,fontSize=20,leading=24)),p(signing,ParagraphStyle("orange",parent=heading,fontSize=20,leading=24,textColor=colors.HexColor("#c55a11"))),p(interested,ParagraphStyle("green",parent=heading,fontSize=20,leading=24,textColor=colors.HexColor("#548235")))],[p("компаний в работе"),p("касаний отработано"),p("на подписании"),p("подтвердили намерение")]],colWidths=[132]*4)
     kpi.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#edf1f6")),("BOX",(0,0),(-1,-1),0.5,navy),("VALIGN",(0,0),(-1,-1),"TOP")]))
     story.extend([kpi,Spacer(1,16)])
-    for group,rows in sorted(groups.items(),key=lambda x: next((i for i,k in enumerate(("ПРИОРИТЕТ A","ПРИОРИТЕТ B","ПРИОРИТЕТ C","ДЕЙСТВУЮЩИЕ","ФИЛИАЛЫ","ОТКАЗЫ")) if x[0].startswith(k)),99)):
+    for group,rows in sorted(groups.items(),key=lambda x: next((i for i,k in enumerate(("ДЕЙСТВУЮЩИЕ","КОРПОРАТИВНЫЕ","ПРИОРИТЕТ A","ПРИОРИТЕТ B","ПРИОРИТЕТ C","ФИЛИАЛЫ","ОТКАЗЫ")) if x[0].startswith(k)),99)):
         story.append(p(group,heading))
         note=("Ближайшая цель — завершение согласования и подписание договоров." if group.startswith("ПРИОРИТЕТ A") else "Потенциал перехода к договору после подтверждения коммерческих условий." if group.startswith("ПРИОРИТЕТ B") else "Необходимо подтвердить интерес и определить потенциал сотрудничества." if group.startswith("ПРИОРИТЕТ C") else "")
         story.append(p(f"Компаний: {len(rows)} · касаний за период: {group_counts[group]} · известный оборот: {money(turnover[group]) if group in turnover else 'нет данных'}. {note}"))
-        table=Table([[p(x,ParagraphStyle("th",parent=bold,textColor=colors.white)) for x in ["Компания, регион","Кас. период / всего","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[145,65,90,230,218],repeatRows=1)
+        table=Table([[p(x,ParagraphStyle("th",parent=bold,textColor=colors.white)) for x in ["Компания, регион","Касания","Выручка 2025","Стадия","Перспектива"]]]+rows,colWidths=[112,44,74,148,150],repeatRows=1)
         table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),navy),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#fce9df"),colors.HexColor("#fff4ed")] if group.startswith("ПРИОРИТЕТ A") else [colors.white,colors.HexColor("#f2f3f5")]),("VALIGN",(0,0),(-1,-1),"TOP"),("LINEBELOW",(0,0),(-1,0),1,navy)]))
         story.extend([table,Spacer(1,12)])
     out=io.BytesIO()
-    SimpleDocTemplate(out,pagesize=landscape(A4),leftMargin=45,rightMargin=45,topMargin=35,bottomMargin=35).build(story)
+    SimpleDocTemplate(out,pagesize=A4,leftMargin=33,rightMargin=33,topMargin=35,bottomMargin=35).build(story)
     return out.getvalue()
 
 if __name__=="__main__":
